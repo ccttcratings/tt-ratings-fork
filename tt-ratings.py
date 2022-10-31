@@ -154,6 +154,15 @@ class MongoDB():
                 ratings_history[p] = self.get_player_history(p)
         return ratings_history
 
+    def get_last_update_date(self):
+        if self.all_players is None:
+            self.get_all_players()
+
+        last_update = datetime.strptime('2000-01-01', '%Y-%m-%d').replace(hour=14)
+        for p in self.all_players:
+            last_update = p['last_played'] if p['last_played'] > last_update else last_update
+        return last_update
+
     def set_new_ratings(self, new_ratings: dict):
         for k, v in new_ratings.items():
             player = self.collection.find_one({'name': k})
@@ -400,6 +409,10 @@ def new_league(date_str, execute, print_out):
 
     print('Connecting to MongoDB...')
     mongodb = MongoDB(date_str)
+    last_update = mongodb.get_last_update_date()
+    if last_update >= datetime.strptime('2000-01-01', '%Y-%m-%d').replace(hour=14):
+        print(f'Leagues on "{date_str}" has already been processed before.')
+        return
     current_ratings = mongodb.get_current_ratings()
     missing_players = league_players - current_ratings.keys()
 
