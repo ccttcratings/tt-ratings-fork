@@ -90,14 +90,13 @@ class Player:
 class MongoDB():
 
     CONNECTION_URI = 'mongodb+srv://duke-cluster.ops3ljm.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority'
-    MONGODB_CERT_FILE = 'mongodb_cert.pem'
 
-    def __init__(self, date_str):
+    def __init__(self, date_str, cert='mongodb_cert.pem'):
         # client = MongoClient('localhost', 27017)
-        if not os.path.exists(self.MONGODB_CERT_FILE):
-            print(f'Missing mongodb cert file: {self.MONGODB_CERT_FILE}')
+        if not os.path.exists(cert):
+            print(f'Missing mongodb cert file: {cert}')
             exit(1)
-        client = MongoClient(self.CONNECTION_URI, tls=True, tlsCertificateKeyFile=self.MONGODB_CERT_FILE)
+        client = MongoClient(self.CONNECTION_URI, tls=True, tlsCertificateKeyFile=cert)
         db = client['ccttc_ratings']
         self.collection = db['players']
 
@@ -283,7 +282,7 @@ class GoogleSheet():
         self.all_players = list(map(str.strip, self.all_players))
         return self.all_players
 
-    def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict):
+    def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days):
         try:
             all_player_ratings = []
             league_player_ratings = {}
@@ -301,7 +300,7 @@ class GoogleSheet():
 
                 ranking += 1
                 active_player = True
-                if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > 60:
+                if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > active_days:
                     active_player = False
                 all_player_ratings.append([ranking, k, v[0], active_player])
 
@@ -378,7 +377,7 @@ def get_rating_diffs(current_ratings, new_ratings):
 
     return rating_increased, rating_decreased
 
-def new_league(date_str, execute, print_out):
+def new_league(date_str, cert, active_days, execute, print_out):
     print('Connecting to google sheets...')
     google_sheet = GoogleSheet(date_str)
     league_scores = google_sheet.get_scores()
@@ -408,7 +407,7 @@ def new_league(date_str, execute, print_out):
             return
 
     print('Connecting to MongoDB...')
-    mongodb = MongoDB(date_str)
+    mongodb = MongoDB(date_str, cert)
     last_update = mongodb.get_last_update_date()
     if last_update >= datetime.strptime('2000-01-01', '%Y-%m-%d').replace(hour=14):
         print(f'Leagues on "{date_str}" has already been processed before.')
@@ -451,16 +450,16 @@ def new_league(date_str, execute, print_out):
         print('Updating database and spreadsheet...')
         mongodb.backup()
         mongodb.set_new_ratings(new_ratings)
-        google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased)
+        google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased, active_days)
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
 
     return
 
-def show_ratings(player_list: list, current):
+def show_ratings(cert, player_list: list, current, active_days):
     print('Connecting to MongoDB...')
     date_str = datetime.now().strftime('%Y-%m-%d')
-    mongodb = MongoDB(date_str)
+    mongodb = MongoDB(date_str, cert)
     player_list = mongodb.get_ratings_history(player_list)
     if current:
         print('   Name        Rating   Active')
@@ -469,7 +468,7 @@ def show_ratings(player_list: list, current):
     for k, v in player_list.items():
         if current:
             active_player = True
-            if (datetime.now() - v[-1][1]).days > 60:
+            if (datetime.now() - v[-1][1]).days > active_days:
                 active_player = False
             ratings = f'{round(v[-1][0], 2): >7.02f}   {active_player}'
         else:
@@ -480,6 +479,20 @@ def show_ratings(player_list: list, current):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-m', '--mongodb-cert',
+        dest='mongodb_cert',
+        type=str,
+        default='mongodb_cert.pem',
+        help='MongoDB cert, defaults to "mongodb_cert.pem".'
+    )
+    parser.add_argument(
+        '-a', '--active-days',
+        dest='active_days',
+        type=int,
+        default=60,
+        help='The limit in days when players is set as inactive, defaults to 60 days.'
+    )
     parser.add_argument(
         '-d', '--date',
         dest='date',
@@ -539,7 +552,7 @@ def main():
         except ValueError:
             print('Date must be in the format of yyyy-mm-dd.')
             exit(1)
-        new_league(args.date, args.execute, args.print_out)
+        new_league(args.date, args.mongodb_cert, args.active_days, args.execute, args.print_out)
     elif args.remove_league:
         if args.date is None:
             print('Must provide a date to remove league matches.')
@@ -549,12 +562,12 @@ def main():
         except ValueError:
             print('Date must be in the format of yyyy-mm-dd.')
             exit(1)
-        mongodb = MongoDB(args.date)
+        mongodb = MongoDB(args.date, args.mongodb_cert)
         mongodb.remove_league()
     elif args.show_ratings is not None:
         player_list = args.show_ratings.split(',')
         player_list = list(map(str.strip, player_list))
-        show_ratings(player_list, args.current)
+        show_ratings(args.mongodb_cert, player_list, args.current, args.active_days)
 
     exit(0)
 
