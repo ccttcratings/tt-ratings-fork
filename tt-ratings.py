@@ -130,6 +130,7 @@ class MongoDB():
         if self.all_players is None:
             self.get_all_players()
 
+        self.all_players.rewind()
         for p in self.all_players:
             self.current_ratings[p['name']] = p['historical_ratings'][-1]
         return self.current_ratings
@@ -146,6 +147,8 @@ class MongoDB():
         if 'all' in map(str.lower, player_list):
             if self.all_players is None:
                 self.get_all_players()
+
+            self.all_players.rewind()
             for p in self.all_players:
                 ratings_history[p['name']] = p['historical_ratings']
         else:
@@ -158,6 +161,7 @@ class MongoDB():
             self.get_all_players()
 
         last_update = datetime.strptime('2000-01-01', '%Y-%m-%d').replace(hour=14)
+        self.all_players.rewind()
         for p in self.all_players:
             last_update = p['last_played'] if p['last_played'] > last_update else last_update
         return last_update
@@ -409,7 +413,7 @@ def new_league(date_str, cert, active_days, execute, print_out):
     print('Connecting to MongoDB...')
     mongodb = MongoDB(date_str, cert)
     last_update = mongodb.get_last_update_date()
-    if last_update >= datetime.strptime('2000-01-01', '%Y-%m-%d').replace(hour=14):
+    if last_update >= datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14):
         print(f'Leagues on "{date_str}" has already been processed before.')
         return
     current_ratings = mongodb.get_current_ratings()
