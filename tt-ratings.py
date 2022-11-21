@@ -91,12 +91,12 @@ class MongoDB():
 
     CONNECTION_URI = 'mongodb+srv://duke-cluster.ops3ljm.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority'
 
-    def __init__(self, date_str, cert='mongodb_cert.pem'):
+    def __init__(self, date_str, cert_file='mongodb_cert.pem'):
         # client = MongoClient('localhost', 27017)
-        if not os.path.exists(cert):
-            print(f'Missing mongodb cert file: {cert}')
+        if not os.path.exists(cert_file):
+            print(f'Missing mongodb cert file: {cert_file}')
             exit(1)
-        client = MongoClient(self.CONNECTION_URI, tls=True, tlsCertificateKeyFile=cert)
+        client = MongoClient(self.CONNECTION_URI, tls=True, tlsCertificateKeyFile=cert_file)
         db = client['ccttc_ratings']
         self.collection = db['players']
 
@@ -212,7 +212,7 @@ class GoogleSheet():
     RATINGS_HEADERS_RANGE = 'Ratings!C1:C1'
     RATINGS_RANGE = 'Ratings!A2:D'
 
-    def __init__(self, date_str):
+    def __init__(self, date_str, cred_file="credentials.json"):
         self.date_str = date_str
         self.ratings_range = [f'{date_str}!C2:D7', f'{date_str}!C19:D24', f'{date_str}!C36:D41']
         self.score_ranges = [f'{date_str}!G2:R16', f'{date_str}!G19:R33', f'{date_str}!G36:R50']
@@ -234,7 +234,7 @@ class GoogleSheet():
             if self.creds and self.creds.expired and self.creds.refresh_token:
                 self.creds.refresh(Request())
             else:
-                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', self.SCOPES)
+                flow = InstalledAppFlow.from_client_secrets_file(cred_file, self.SCOPES)
                 self.creds = flow.run_local_server(port=0)
             # Save the credentials for the next run
             with open('token.json', 'w') as token:
@@ -381,21 +381,44 @@ def get_rating_diffs(current_ratings, new_ratings):
 
     return rating_increased, rating_decreased
 
-def new_league(date_str, cert, active_days, execute, print_out):
+def new_league(date_str, cert_file, google_cred, active_days, execute, print_out):
     print('Connecting to google sheets...')
-    google_sheet = GoogleSheet(date_str)
+    google_sheet = GoogleSheet(date_str, google_cred)
+
+    print('Connecting to MongoDB...')
+    mongodb = MongoDB(date_str, cert_file)
+
     league_scores = google_sheet.get_scores()
     if not league_scores:
         print(f'No scores found for {date_str}.')
         return
     league_players = google_sheet.get_league_players()
 
+    last_update = mongodb.get_last_update_date()
+    if last_update >= datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14):
+        print(f'Leagues on "{date_str}" has already been processed before.')
+        return
+    current_ratings = mongodb.get_current_ratings()
+    missing_players = league_players - current_ratings.keys()
+
     print()
+    league_avg_ratings = {}
     for i in range(len(google_sheet.players_per_league)):
         league = i + 1
+        if len(google_sheet.players_per_league[league]) == 0:
+            break
+            
         print(f'League {league}:')
+        total_ratings = 0.0
+        player_count = 0
         for p in google_sheet.players_per_league[league]:
+            try:
+                total_ratings += current_ratings[p][0]
+                player_count += 1
+            except KeyError:
+                pass
             print(f'  {p}')
+        league_avg_ratings[league] = total_ratings / player_count
         print()
 
     while True:
@@ -410,18 +433,13 @@ def new_league(date_str, cert, active_days, execute, print_out):
         except KeyboardInterrupt:
             return
 
-    print('Connecting to MongoDB...')
-    mongodb = MongoDB(date_str, cert)
-    last_update = mongodb.get_last_update_date()
-    if last_update >= datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14):
-        print(f'Leagues on "{date_str}" has already been processed before.')
-        return
-    current_ratings = mongodb.get_current_ratings()
-    missing_players = league_players - current_ratings.keys()
-
     for p in missing_players:
         while True:
-            print(f'Missing rating for "{p}". Please enter initial rating: ', end='')
+            for i in range(len(google_sheet.players_per_league)):
+                league = i + 1
+                if p in google_sheet.players_per_league[league]:
+                    print(f'Missing rating for "{p}", average ratings for league {league} is {round(league_avg_ratings[league], 2)}. Please enter initial rating: ', end='')
+                    break
             try:
                 current_ratings[p] = [float(input()), datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)]
                 break
@@ -460,10 +478,10 @@ def new_league(date_str, cert, active_days, execute, print_out):
 
     return
 
-def show_ratings(cert, player_list: list, current, active_days):
+def show_ratings(cert_file, player_list: list, current, active_days):
     print('Connecting to MongoDB...')
     date_str = datetime.now().strftime('%Y-%m-%d')
-    mongodb = MongoDB(date_str, cert)
+    mongodb = MongoDB(date_str, cert_file)
     player_list = mongodb.get_ratings_history(player_list)
     if current:
         print('   Name        Rating   Active')
@@ -488,7 +506,14 @@ def main():
         dest='mongodb_cert',
         type=str,
         default='mongodb_cert.pem',
-        help='MongoDB cert, defaults to "mongodb_cert.pem".'
+        help='Path to the MongoDB cert file, defaults to "mongodb_cert.pem".'
+    )
+    parser.add_argument(
+        '-g', '--google-cred',
+        dest='google_cred',
+        type=str,
+        default='google_cred.json',
+        help='Path to the Google API credentials file, defaults to "google_cred.json".'
     )
     parser.add_argument(
         '-a', '--active-days',
@@ -556,7 +581,7 @@ def main():
         except ValueError:
             print('Date must be in the format of yyyy-mm-dd.')
             exit(1)
-        new_league(args.date, args.mongodb_cert, args.active_days, args.execute, args.print_out)
+        new_league(args.date, args.mongodb_cert, args.google_cred, args.active_days, args.execute, args.print_out)
     elif args.remove_league:
         if args.date is None:
             print('Must provide a date to remove league matches.')
