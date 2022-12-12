@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google.auth.exceptions import RefreshError
 import numpy as np
 import pandas as pd
 import argparse
@@ -232,7 +233,11 @@ class GoogleSheet():
         # If there are no (valid) credentials available, let the user log in.
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
+                try:
+                    self.creds.refresh(Request())
+                except RefreshError:
+                    flow = InstalledAppFlow.from_client_secrets_file(cred_file, self.SCOPES)
+                    self.creds = flow.run_local_server(port=0)
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(cred_file, self.SCOPES)
                 self.creds = flow.run_local_server(port=0)
