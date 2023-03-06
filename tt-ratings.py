@@ -104,7 +104,7 @@ class MongoDB():
         self.all_players = None
         self.current_ratings = {}
         self.date_str = date_str
-        self.dt_obj = datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)
+
         return
 
     def backup(self):
@@ -171,26 +171,26 @@ class MongoDB():
         for k, v in new_ratings.items():
             player = self.collection.find_one({'name': k})
             r = float(v[0])
+            d = v[1]
             if player is None:
-                if not r.is_integer():
-                    new_player = {
-                        'name': k,
-                        'email': '',
-                        'leagues_played': 1,
-                        'last_played': self.dt_obj,
-                        'current_rating': r,
-                        'historical_ratings': [[r, self.dt_obj]]
-                    }
-                    self.collection.insert_one(new_player)
+                new_player = {
+                    'name': k,
+                    'email': '',
+                    'leagues_played': 1,
+                    'last_played': d,
+                    'current_rating': r,
+                    'historical_ratings': [[r, d]]
+                }
+                self.collection.insert_one(new_player)
             else:
-                if player['current_rating'] != r:
-                    player['historical_ratings'].append([r, self.dt_obj])
+                if player['last_played'] < d:
+                    player['historical_ratings'].append([r, d])
                     self.collection.update_one(
                         {'name': k},
                         {
                             '$inc': {'leagues_played': 1},
                             '$set': {
-                                'last_played': self.dt_obj,
+                                'last_played': d,
                                 'current_rating': r,
                                 'historical_ratings': player['historical_ratings']
                             }
@@ -412,7 +412,7 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
         league = i + 1
         if len(google_sheet.players_per_league[league]) == 0:
             break
-            
+
         print(f'League {league}:')
         total_ratings = 0.0
         player_count = 0
