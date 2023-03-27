@@ -83,7 +83,7 @@ class Player:
                 if i != 0:
                     score_diffs += ', '
                 score_diffs += f'{diff: >3}'
-            rating_change_str = f'{p1_info: >20} : {p2_info: >20}  =>  {score_diffs: <25}  =>  {round(new_rating - self.rating, 2):+.02f}'
+            rating_change_str = f'{p1_info: >30} : {p2_info: >30}  =>  {score_diffs: <25}  =>  {round(new_rating - self.rating, 2):+.02f}'
             print(rating_change_str)
         return new_rating
 
