@@ -457,27 +457,37 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
     print('Calculating new ratings...')
     new_ratings = calculate_new_ratings(current_ratings, league_scores, date_str, print_out)
     rating_increased, rating_decreased = get_rating_diffs(current_ratings, new_ratings)
-    # print(new_ratings)
+
+    if print_out:
+        for i in range(len(google_sheet.players_per_league)):
+            league = i + 1
+            if len(google_sheet.players_per_league[league]) == 0:
+                break
+
+            print(f'League {league}:')
+            for p in google_sheet.players_per_league[league]:
+                print(f'  {p: >20}: {round(current_ratings[p][0], 2): >7.02f}   =>   {round(new_ratings[p][0] - current_ratings[p][0], 2): >+7.02f}   =>   {round(new_ratings[p][0], 2): >7.02f}')
+            print()
 
     # Just in case things go wrong, we backup the database locally.
     # The backup file can be used to import to mongodb using command "mongoimport".
     if execute:
-        if print_out:
-            while True:
-                print('Update database and spreadsheet? [y/N] ', end='')
-                execute_check = input()
-                try:
-                    if execute_check.strip().lower() == 'y':
-                        break
-                    else:
-                        print('Database and spreadsheet NOT updated...')
-                        return
-                except KeyboardInterrupt:
+        while True:
+            print('Update database and spreadsheet? [y/N] ', end='')
+            execute_check = input()
+            try:
+                if execute_check.strip().lower() == 'y':
+                    break
+                else:
+                    print('Database and spreadsheet NOT updated...')
                     return
+            except KeyboardInterrupt:
+                return
         print('Updating database and spreadsheet...')
         mongodb.backup()
         mongodb.set_new_ratings(new_ratings)
         google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased, active_days)
+        print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
 
