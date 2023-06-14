@@ -167,7 +167,7 @@ class MongoDB():
             last_update = p['last_played'] if p['last_played'] > last_update else last_update
         return last_update
 
-    def set_new_ratings(self, new_ratings: dict):
+    def set_new_ratings(self, new_ratings: dict, new_emails: dict=None):
         for k, v in new_ratings.items():
             player = self.collection.find_one({'name': k})
             r = float(v[0])
@@ -175,7 +175,7 @@ class MongoDB():
             if player is None:
                 new_player = {
                     'name': k,
-                    'email': '',
+                    'email': new_emails[k],
                     'leagues_played': 1,
                     'last_played': d,
                     'current_rating': r,
@@ -438,6 +438,7 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
         except KeyboardInterrupt:
             return
 
+    new_emails = {}
     for p in missing_players:
         while True:
             for i in range(len(google_sheet.players_per_league)):
@@ -451,6 +452,15 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
             except ValueError:
                 print('Rating must be a number, please try again.')
                 continue
+            except KeyboardInterrupt:
+                return
+
+        while True:
+            print(f'Please enter an email address for "{p}": ', end='')
+            player_email = input()
+            try:
+                new_emails[p] = player_email.strip().lower()
+                break
             except KeyboardInterrupt:
                 return
 
@@ -485,7 +495,7 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
                 return
         print('Updating database and spreadsheet...')
         mongodb.backup()
-        mongodb.set_new_ratings(new_ratings)
+        mongodb.set_new_ratings(new_ratings, new_emails)
         google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased, active_days)
         print('All done!')
     else:
