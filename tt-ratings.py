@@ -264,6 +264,7 @@ class GoogleSheet():
                 result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID, range=r).execute()
                 scores = result.get('values', [])
                 for row in scores:
+                    row[:2] = map(str.strip, row[:2])
                     row[2:] = map(int, row[2:])
                 self.scores.extend(scores)
         except HttpError as err:
@@ -284,11 +285,11 @@ class GoogleSheet():
                 values = result.get('values', [])
                 for v in values:
                     self.players_per_league[league].extend(v)
+                self.players_per_league[league] = list(map(str.strip, self.players_per_league[league]))
                 self.all_players.extend(self.players_per_league[league])
         except HttpError as err:
             print(f'Failed to get league players, error: {err}')
             exit(1)
-        self.all_players = list(map(str.strip, self.all_players))
         return self.all_players
 
     def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days):
@@ -316,7 +317,10 @@ class GoogleSheet():
             for l in self.players_per_league:
                 values = []
                 for p in self.players_per_league[l]:
-                    values.append(league_player_ratings[p])
+                    if p == '':
+                        values.append(['', ''])
+                    else:
+                        values.append(league_player_ratings[p])
                 self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.ratings_range[l - 1], valueInputOption='RAW', body={'values': values}).execute()
 
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE).execute()
@@ -334,6 +338,8 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
     for row in league_scores:
         p1_name = row[0]
         p2_name = row[1]
+        if p1_name == '' or p2_name == '':
+            continue
         p1_rating = current_ratings[p1_name][0]
         p2_rating = current_ratings[p2_name][0]
         p1 = Player(p1_name, p1_rating)
@@ -440,29 +446,30 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
 
     new_emails = {}
     for p in missing_players:
-        while True:
-            for i in range(len(google_sheet.players_per_league)):
-                league = i + 1
-                if p in google_sheet.players_per_league[league]:
-                    print(f'Missing rating for "{p}", average ratings for league {league} is {round(league_avg_ratings[league], 2)}. Please enter initial rating: ', end='')
+        if p != '':
+            while True:
+                for i in range(len(google_sheet.players_per_league)):
+                    league = i + 1
+                    if p in google_sheet.players_per_league[league]:
+                        print(f'Missing rating for "{p}", average ratings for league {league} is {round(league_avg_ratings[league], 2)}. Please enter initial rating: ', end='')
+                        break
+                try:
+                    current_ratings[p] = [float(input()), datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)]
                     break
-            try:
-                current_ratings[p] = [float(input()), datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)]
-                break
-            except ValueError:
-                print('Rating must be a number, please try again.')
-                continue
-            except KeyboardInterrupt:
-                return
+                except ValueError:
+                    print('Rating must be a number, please try again.')
+                    continue
+                except KeyboardInterrupt:
+                    return
 
-        while True:
-            print(f'Please enter an email address for "{p}": ', end='')
-            player_email = input()
-            try:
-                new_emails[p] = player_email.strip().lower()
-                break
-            except KeyboardInterrupt:
-                return
+            while True:
+                print(f'Please enter an email address for "{p}": ', end='')
+                player_email = input()
+                try:
+                    new_emails[p] = player_email.strip().lower()
+                    break
+                except KeyboardInterrupt:
+                    return
 
     print('Calculating new ratings...')
     new_ratings = calculate_new_ratings(current_ratings, league_scores, date_str, print_out)
@@ -476,7 +483,8 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
 
             print(f'League {league}:')
             for p in google_sheet.players_per_league[league]:
-                print(f'  {p: >20}: {round(current_ratings[p][0], 2): >7.02f}   =>   {round(new_ratings[p][0] - current_ratings[p][0], 2): >+7.02f}   =>   {round(new_ratings[p][0], 2): >7.02f}')
+                if p != '':
+                    print(f'  {p: >20}: {round(current_ratings[p][0], 2): >7.02f}   =>   {round(new_ratings[p][0] - current_ratings[p][0], 2): >+7.02f}   =>   {round(new_ratings[p][0], 2): >7.02f}')
             print()
 
     # Just in case things go wrong, we backup the database locally.
