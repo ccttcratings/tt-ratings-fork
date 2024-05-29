@@ -336,6 +336,8 @@ class GoogleSheet():
 def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
     rating_changes = {}
     for row in league_scores:
+        if len(row) < 2:
+            continue
         p1_name = row[0]
         p2_name = row[1]
         if p1_name == '' or p2_name == '':
