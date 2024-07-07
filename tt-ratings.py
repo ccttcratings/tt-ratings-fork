@@ -213,7 +213,7 @@ class GoogleSheet():
     RATINGS_HEADERS_RANGE = 'Ratings!C1:C1'
     RATINGS_RANGE = 'Ratings!A2:D'
 
-    def __init__(self, date_str, cred_file="credentials.json"):
+    def __init__(self, date_str, cred_file="google_cred.json"):
         self.date_str = date_str
         self.ratings_range = [f'{date_str}!C2:D7', f'{date_str}!C19:D24', f'{date_str}!C36:D41']
         self.score_ranges = [f'{date_str}!G2:R16', f'{date_str}!G19:R33', f'{date_str}!G36:R50']
