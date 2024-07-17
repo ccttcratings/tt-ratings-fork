@@ -24,39 +24,164 @@ class ELO:
         return
 
     def update_rating(self, player1_rating, player2_rating, score_differentials):
-        e = self.expected_result(player1_rating, player2_rating)
-        match_K = self.match_K
-        match_update_vals = []
-
-        for diff in score_differentials:
-            if diff > 0:
-                elow = player1_rating
-                elol = player2_rating
-            else:
-                elow = player2_rating
-                elol = player1_rating
-
-            g = (np.log(np.abs(diff) + 1) * (2.2 / ((elow - elol) * 0.001 + 2.2)))
-            w = 1 if diff > 0 else 0
-
-            update_val = (match_K * g) * (w - e)
-            match_update_vals.append(update_val)
-
-        match_update_val = np.sum(match_update_vals)
+        # e = self.expected_result(player1_rating, player2_rating)
+        # match_K = self.match_K
+        # match_update_vals = []
+        #
+        # if len(score_differentials) < 3:
+        #     print("Invalid Game: Not Enough Matches")
+        #     exit(1)
+        #
+        # for match_score_diff in score_differentials:
+        #     if match_score_diff > 0:
+        #         rating_winner = player1_rating
+        #         rating_loser = player2_rating
+        #     else:
+        #         rating_winner = player2_rating
+        #         rating_loser = player1_rating
+        #
+        #     g = (np.log(np.abs(match_score_diff) + 1) * (2.2 / ((rating_winner - rating_loser) * 0.001 + 2.2)))
+        #     w = 1 if match_score_diff > 0 else 0
+        #
+        #     update_val = (match_K * g) * (w - e)
+        #     match_update_vals.append(update_val)
+        #
+        # match_update_val = np.sum(match_update_vals)
 
         results = [0 if diff < 0 else 1 for diff in score_differentials]
 
         win_dict = {0: 0, 1: 0}
         win_dict.update(pd.Series(results).value_counts().to_dict())
-        diff = win_dict[1] - win_dict[0]
-        g = np.log(np.abs(diff) + 1) * (2.2 / ((elow - elol) * 0.001 + 2.2))
-        w = pd.Series(results).value_counts().idxmax()
-        game_update_val = (self.game_K * g) * (w - e)
-        return player1_rating + (game_update_val + match_update_val) / 2
+        game_score_diff = win_dict[1] - win_dict[0]
+        rating_diff = player1_rating - player2_rating
+        rating_change = self.rating_change(rating_diff, game_score_diff)
+        # g = np.log(np.abs(game_score_diff) + 1) * (2.2 / ((rating_winner - rating_loser) * 0.001 + 2.2))
+        # w = pd.Series(results).value_counts().idxmax()
+        # game_update_val = (self.game_K * g) * (w - e)
+        # return player1_rating + (game_update_val + match_update_val) / 2
+        return player1_rating + rating_change
 
     def expected_result(self, player1_rating, player2_rating):
         exp = (player2_rating - player1_rating) / 400.0
         return 1 / ((10.0 ** (exp)) + 1)
+
+    def rating_change(self, rating_diff, game_score_diff):
+        is_higher_rated = rating_diff >= 0
+        is_winner = game_score_diff > 0
+        is_expected = not (is_higher_rated ^ is_winner)
+        rating_diff = abs(rating_diff)
+        games_left = abs(game_score_diff) - 1
+
+        rating_range_list_long = [14, 27.75, 41.25, 54.5, 67.5, 80.25, 92.75, 105, 117, 128.75, 140.25, 151.5, 162.5,
+                                  173.25, 183.75, 194, 204, 213.75, 223.25, 232.5, 241.5, 250.25, 258.75, 267, 275,
+                                  282.75, 290.25, 297.5, 304.5, 311.25, 317.75, 324]
+        rating_range_list = [range(30), range(60), range(90), range(120), range(150), range(180), range(210),
+                             range(240), range(270), range(300)]
+        rating_change_expected_dict_long = {0: [4, 6, 8],
+                                            1: [3.25, 5.5, 7.75],
+                                            2: [2.5, 5, 7.5],
+                                            3: [1.75, 4.5, 7.25],
+                                            4: [1, 4, 7],
+                                            5: [0.25, 3.5, 6.75],
+                                            6: [-0.5, 3, 6.5],
+                                            7: [-1.25, 2.5, 6.25],
+                                            8: [-2, 2, 6],
+                                            9: [-2.75, 1.5, 5.75],
+                                            10: [-3.5, 1, 5.5],
+                                            11: [-4.25, 0.5, 5.25],
+                                            12: [-5, 0, 5],
+                                            13: [-5.75, -0.5, 4.75],
+                                            14: [-6.5, -1, 4.5],
+                                            15: [-7.25, -1.5, 4.25],
+                                            16: [-8, -2, 4],
+                                            17: [-8.75, -2.5, 3.75],
+                                            18: [-9.5, -3, 3.5],
+                                            19: [-10.25, -3.5, 3.25],
+                                            20: [-11, -4, 3],
+                                            21: [-11.75, -4.5, 2.75],
+                                            22: [-12.5, -5, 2.5],
+                                            23: [-13.25, -5.5, 2.25],
+                                            24: [-14, -6, 2],
+                                            25: [-14.75, -6.5, 1.75],
+                                            26: [-15.5, -7, 1.5],
+                                            27: [-16.25, -7.5, 1.25],
+                                            28: [-17, -8, 1],
+                                            29: [-17.75, -8.5, 0.75],
+                                            30: [-18.5, -9, 0.5],
+                                            31: [-19.25, -9.5, 0.25],
+                                            32: [-20, -10, 0]
+                                            }
+        rating_change_expected_dict = {0: [6, 8, 10],
+                                       1: [5, 7, 9],
+                                       2: [2, 5, 8],
+                                       3: [-1, 3, 7],
+                                       4: [-4, 1, 6],
+                                       5: [-7, -1, 5],
+                                       6: [-10, -4, 4],
+                                       7: [-13, -5, 3],
+                                       8: [-16, -7, 2],
+                                       9: [-19, -9, 1],
+                                       10: [-22, -11, 0]
+                                       }
+        rating_change_unexpected_dict = {0: [6, 8, 10],
+                                         1: [8, 10, 12],
+                                         2: [11, 14, 17],
+                                         3: [15, 19, 23],
+                                         4: [20, 25, 30],
+                                         5: [26, 32, 38],
+                                         6: [33, 40, 47],
+                                         7: [41, 49, 57],
+                                         8: [50, 59, 68],
+                                         9: [60, 70, 80],
+                                         10: [71, 82, 93]
+                                         }
+        rating_change_unexpected_dict_long = {0: [4, 6, 8],
+                                              1: [5, 7.25, 9.5],
+                                              2: [6, 8.5, 11],
+                                              3: [7.25, 10, 12.75],
+                                              4: [8.5, 11.5, 14.5],
+                                              5: [10, 13.25, 16.5],
+                                              6: [11.5, 15, 18.5],
+                                              7: [13.25, 17, 20.75],
+                                              8: [15, 19, 23],
+                                              9: [17, 21.25, 25.5],
+                                              10: [19, 23.5, 28],
+                                              11: [21.25, 26, 30.75],
+                                              12: [23.5, 28.5, 33.5],
+                                              13: [26, 31.25, 36.5],
+                                              14: [28.5, 34, 39.5],
+                                              15: [31.25, 37, 42.75],
+                                              16: [34, 40, 46],
+                                              17: [37, 43.25, 49.5],
+                                              18: [40, 46.5, 53],
+                                              19: [43.25, 50, 56.75],
+                                              20: [46.5, 53.5, 60.5],
+                                              21: [50, 57.25, 64.5],
+                                              22: [53.5, 61, 68.5],
+                                              23: [57.25, 65, 72.75],
+                                              24: [61, 69, 77],
+                                              25: [65, 73.25, 81.5],
+                                              26: [69, 77.5, 86],
+                                              27: [73.25, 82, 90.75],
+                                              28: [77.5, 86.5, 95.5],
+                                              29: [82, 91.25, 100.5],
+                                              30: [86.5, 96, 105.5],
+                                              31: [91.25, 101, 110.75],
+                                              32: [96, 106, 116]
+                                              }
+
+        try:
+            rating_change_index = next(i for i, x in enumerate(rating_range_list_long) if rating_diff <= x)
+        except StopIteration:
+            rating_change_index = 32
+
+        rating_change_dict = rating_change_expected_dict_long if is_expected else rating_change_unexpected_dict_long
+
+        rating_change_list = rating_change_dict[rating_change_index]
+
+        rating_offset = rating_change_list[games_left] if is_winner else -rating_change_list[games_left]
+
+        return rating_offset
 
 
 class Player:
@@ -198,6 +323,35 @@ class MongoDB():
                     )
         return
 
+    def update_ratings_from_sheet(self, new_ratings: dict, new_emails: dict=None):
+        for k, v in new_ratings.items():
+            player = self.collection.find_one({'name': k})
+            r = float(v[0])
+            d = v[1]
+            if player is None:
+                new_player = {
+                    'name': k,
+                    'email': new_emails[k],
+                    'leagues_played': 1,
+                    'last_played': d,
+                    'current_rating': r,
+                    'historical_ratings': [[r, d]]
+                }
+                self.collection.insert_one(new_player)
+            else:
+                player['historical_ratings'].append([r, d])
+                self.collection.update_one(
+                    {'name': k},
+                    {
+                        '$set': {
+                            'last_played': d,
+                            'current_rating': r,
+                            'historical_ratings': player['historical_ratings']
+                        }
+                    }
+                )
+        return
+
     def remove_league(self):
         return
 
@@ -212,6 +366,7 @@ class GoogleSheet():
 
     RATINGS_HEADERS_RANGE = 'Ratings!C1:C1'
     RATINGS_RANGE = 'Ratings!A2:D'
+    PLAYERS_RANGE = 'Ratings!B2:D'
 
     def __init__(self, date_str, cred_file="google_cred.json"):
         self.date_str = date_str
@@ -272,6 +427,22 @@ class GoogleSheet():
             exit(1)
         return self.scores
 
+    def get_all_ratings(self):
+        if self.sheet is None:
+            self.get_sheet()
+
+        try:
+            values = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID, range=self.PLAYERS_RANGE).execute()
+            ratings = values.get('values', [])
+
+            player_ratings = {}
+            for player in ratings:
+                player_ratings[player[0]] = [float(player[1]), player[2]]
+            return player_ratings
+        except HttpError as err:
+            print(f'Failed to get current ratings, error: {err}')
+            exit(1)
+
     def get_league_players(self):
         if self.sheet is None:
             self.get_sheet()
@@ -313,6 +484,7 @@ class GoogleSheet():
                 if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > active_days:
                     active_player = False
                 all_player_ratings.append([ranking, k, v[0], active_player])
+                print(f'{k}     active:{active_player}')
 
             for l in self.players_per_league:
                 values = []
@@ -330,6 +502,29 @@ class GoogleSheet():
         except HttpError as err:
             print(f'Failed to update ratings, error: {err}')
             exit(1)
+        return
+
+    def print_active_status(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days):
+        all_player_ratings = []
+        league_player_ratings = {}
+        ranking = 0
+        for k, v in new_ratings.items():
+            if k in self.all_players:
+                try:
+                    rating_diff = f'+{rating_increased[k]}'
+                except KeyError:
+                    try:
+                        rating_diff = f'{rating_decreased[k]}'
+                    except KeyError:
+                        rating_diff = ''
+                league_player_ratings[k] = [v[0], rating_diff]
+
+            ranking += 1
+            active_player = True
+            if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > active_days:
+                active_player = False
+            all_player_ratings.append([ranking, k, v[0], active_player])
+            print(f'{k}     active:{active_player}')
         return
 
 
@@ -374,12 +569,18 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
                 rating_changes[p2_name].append(new_p2_rating - p2_rating)
 
     new_ratings = copy.deepcopy(current_ratings)
+    if date_str == '':
+        print('No date provided, retaining existing dates')
     for player in rating_changes:
         new_ratings[player][0] += sum(rating_changes[player])
-        new_ratings[player][1] = datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)
+        if date_str != '':
+            new_ratings[player][1] = datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)
+        else:
+            new_ratings[player][1] = current_ratings[player][1]
     new_ratings = dict(sorted(new_ratings.items(), key=lambda item: item[1][0], reverse=True))
 
     return new_ratings
+
 
 def get_rating_diffs(current_ratings, new_ratings):
     rating_increased = {}
@@ -393,6 +594,7 @@ def get_rating_diffs(current_ratings, new_ratings):
             rating_decreased[key] = rating_diff
 
     return rating_increased, rating_decreased
+
 
 def new_league(date_str, cert_file, google_cred, active_days, execute, print_out):
     print('Connecting to google sheets...')
@@ -431,7 +633,10 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
             except KeyError:
                 pass
             print(f'  {p}')
-        league_avg_ratings[league] = total_ratings / player_count
+        if player_count > 0:
+            league_avg_ratings[league] = total_ratings / player_count
+        else:
+            league_avg_ratings[league] = 0
         print()
 
     while True:
@@ -512,6 +717,53 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
         print('No execute flag detected, database and spreadsheet will not be updated.')
 
     return
+
+
+def update_database_from_sheet(date_str, cert_file, google_cred, active_days, execute, print_out):
+    print('Connecting to google sheets...')
+    google_sheet = GoogleSheet(date_str, google_cred)
+
+    print('Connecting to MongoDB...')
+    mongodb = MongoDB(date_str, cert_file)
+
+    league_scores = google_sheet.get_all_ratings()
+    current_ratings = mongodb.get_current_ratings()
+
+    for player in current_ratings:
+        league_scores[player][1] = current_ratings[player][1]
+
+    print('Calculating new ratings...')
+    rating_increased, rating_decreased = get_rating_diffs(current_ratings, league_scores)
+
+    if print_out:
+        for i in current_ratings:
+            print(f'{i}')
+            print(
+                f'  {round(current_ratings[i][0], 2): >7.02f}   =>   {round(league_scores[i][0] - current_ratings[i][0], 2): >+7.02f}   =>   {round(league_scores[i][0], 2): >7.02f}')
+            print()
+
+    google_sheet.print_active_status(league_scores, rating_increased, rating_decreased, active_days)
+    if execute:
+        while True:
+            print('Update database and spreadsheet? [y/N] ', end='')
+            execute_check = input()
+            try:
+                if execute_check.strip().lower() == 'y':
+                    break
+                else:
+                    print('Database and spreadsheet NOT updated...')
+                    return
+            except KeyboardInterrupt:
+                return
+        print('Updating database and spreadsheet...')
+        mongodb.backup()
+        mongodb.update_ratings_from_sheet(league_scores, {})
+        google_sheet.set_new_ratings(league_scores, rating_increased, rating_decreased, active_days)
+        print('All done!')
+    else:
+        print('No execute flag detected, database and spreadsheet will not be updated.')
+    return
+
 
 def show_ratings(cert_file, player_list: list, current, active_days):
     print('Connecting to MongoDB...')
@@ -597,6 +849,13 @@ def main():
         default=False,
         help='Let the script print out the rating changes.'
     )
+    parser.add_argument(
+        '-u', '--update',
+        dest='update_server',
+        action='store_true',
+        default=False,
+        help='Update the server from Google Doc ratings sheet'
+    )
     #TODO: remove a league
     parser.add_argument(
         '-r', '--remove-league',
@@ -617,6 +876,17 @@ def main():
             print('Date must be in the format of yyyy-mm-dd.')
             exit(1)
         new_league(args.date, args.mongodb_cert, args.google_cred, args.active_days, args.execute, args.print_out)
+    elif args.update_server:
+        if args.date is None:
+            print('Must provide a date to process new league matches.')
+            exit(1)
+        try:
+            league_date = datetime.strptime(args.date, '%Y-%m-%d')
+        except ValueError:
+            print('Date must be in the format of yyyy-mm-dd.')
+            exit(1)
+        update_database_from_sheet(args.date, args.mongodb_cert, args.google_cred, args.active_days,
+                                   args.execute, args.print_out)
     elif args.remove_league:
         if args.date is None:
             print('Must provide a date to remove league matches.')
@@ -634,6 +904,7 @@ def main():
         show_ratings(args.mongodb_cert, player_list, args.current, args.active_days)
 
     exit(0)
+
 
 if __name__ == '__main__':
     main()
