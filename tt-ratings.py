@@ -323,7 +323,6 @@ class MongoDB():
                     {'name': k},
                     {
                         '$set': {
-                            'last_played': d,
                             'current_rating': r,
                             'historical_ratings': player['historical_ratings']
                         }
@@ -724,7 +723,7 @@ def update_database_from_sheet(date_str, cert_file, google_cred, active_days, ex
     google_sheet.print_active_status(league_scores, rating_increased, rating_decreased, active_days)
     if execute:
         while True:
-            print('Update database and spreadsheet? [y/N] ', end='')
+            print('Update database? [y/N] ', end='')
             execute_check = input()
             try:
                 if execute_check.strip().lower() == 'y':
@@ -737,7 +736,6 @@ def update_database_from_sheet(date_str, cert_file, google_cred, active_days, ex
         print('Updating database and spreadsheet...')
         mongodb.backup()
         mongodb.update_ratings_from_sheet(league_scores, {})
-        google_sheet.set_new_ratings(league_scores, rating_increased, rating_decreased, active_days)
         print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
