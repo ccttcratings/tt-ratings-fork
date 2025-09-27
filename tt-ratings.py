@@ -15,6 +15,7 @@ import pandas as pd
 import argparse
 import copy
 import os.path
+import re
 
 class ELO:
 
@@ -68,12 +69,18 @@ class ELO:
     def rating_change(self, rating_diff, game_score_diff):
         is_higher_rated = rating_diff >= 0
         is_winner = game_score_diff > 0
+        is_tie = game_score_diff == 0
         is_expected = not (is_higher_rated ^ is_winner)
         rating_diff = abs(rating_diff)
         games_left = abs(game_score_diff) - 1
 
-        if games_left < 0:
-            return 0
+        # Handle ties (2-2 matches)
+        if is_tie:
+            # For ties, use the 0 index (games_left = 0) rating change
+            # Higher rated player loses points, lower rated player gains
+            games_left = 0
+            is_winner = not is_higher_rated  # Lower rated player "wins" the tie
+            is_expected = False  # A tie is never the expected result
 
         rating_range_list = [14, 27.75, 41.25, 54.5, 67.5, 80.25, 92.75, 105, 117, 128.75, 140.25, 151.5, 162.5,
                              173.25, 183.75, 194, 204, 213.75, 223.25, 232.5, 241.5, 250.25, 258.75, 267, 275,
@@ -349,7 +356,6 @@ class GoogleSheet():
     def __init__(self, date_str, cred_file="google_cred.json"):
         self.date_str = date_str
         self.ratings_range = [f'{date_str}!C2:E7', f'{date_str}!C19:E24', f'{date_str}!C36:E41']
-        self.match_elo_ranges = [f'{date_str}!F2:G16', f'{date_str}!F19:G33', f'{date_str}!F36:G50']  # New ranges for match ELO changes
         self.score_ranges = [f'{date_str}!H2:S16', f'{date_str}!H19:S33', f'{date_str}!H36:S50']
         self.player_ranges = [f'{date_str}!B2:B7', f'{date_str}!B19:B24', f'{date_str}!B36:B41']
         self.creds = None
@@ -483,11 +489,10 @@ class GoogleSheet():
                         values.append(league_player_ratings[p])
                 self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.ratings_range[l - 1], valueInputOption='RAW', body={'values': values}).execute()
 
-            # Write match ELO changes to the sheet
+            # Write match ELO changes to the sheet (column I for P1 change)
             if match_rating_changes:
                 for l in self.players_per_league:
-                    match_elo_values = []
-                    # Get the scores for this league to match with rating changes
+                    # Get the scores for this league to build the update values
                     league_scores = []
                     try:
                         result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID, range=self.score_ranges[l - 1]).execute()
@@ -495,24 +500,109 @@ class GoogleSheet():
                     except HttpError:
                         pass
 
-                    for row in league_scores:
-                        if len(row) >= 2:
+                    # Build a list with the full row data including the ELO change in column I (index 1)
+                    updated_rows = []
+                    format_requests = []  # To store formatting requests
+
+                    # Parse the range to get sheet ID and starting row
+                    range_parts = self.score_ranges[l - 1].split('!')
+                    sheet_name = range_parts[0]
+
+                    # Get sheet ID (we'll need to get this from the spreadsheet metadata)
+                    try:
+                        spreadsheet = self.sheet.get(spreadsheetId=self.SPREADSHEET_ID).execute()
+                        sheet_id = None
+                        for sheet in spreadsheet.get('sheets', []):
+                            if sheet['properties']['title'] == sheet_name:
+                                sheet_id = sheet['properties']['sheetId']
+                                break
+                    except HttpError:
+                        sheet_id = None
+
+                    # Extract starting row from range (e.g., "H2:S16" -> row 2)
+                    range_coords = range_parts[1].split(':')[0]
+                    start_row = int(re.search(r'\d+', range_coords).group()) - 1  # 0-indexed
+
+                    for row_idx, row in enumerate(league_scores):
+                        if len(row) >= 3:
                             p1_name = row[0].strip() if row[0] else ''
-                            p2_name = row[1].strip() if row[1] else ''
+                            # Player 2 is in column 2 (index 2), not column 1
+                            p2_name = row[2].strip() if row[2] else ''
+
+                            new_row = row.copy()
+                            # Ensure the row has at least 2 elements
+                            while len(new_row) < 2:
+                                new_row.append('')
+
                             if p1_name and p2_name:
                                 match_key = (p1_name, p2_name)
                                 if match_key in match_rating_changes:
                                     p1_change, p2_change = match_rating_changes[match_key]
-                                    match_elo_values.append([f'{p1_change:+.2f}', f'{p2_change:+.2f}'])
-                                else:
-                                    match_elo_values.append(['', ''])
-                            else:
-                                match_elo_values.append(['', ''])
-                        else:
-                            match_elo_values.append(['', ''])
+                                    # Put P1's change in column I (index 1)
+                                    new_row[1] = f'{p1_change:+.2f}'
 
-                    if match_elo_values:
-                        self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.match_elo_ranges[l - 1], valueInputOption='RAW', body={'values': match_elo_values}).execute()
+                                    # Determine winner and add formatting request
+                                    if sheet_id is not None:
+                                        if p1_change > 0:  # Player 1 wins
+                                            format_requests.append({
+                                                'repeatCell': {
+                                                    'range': {
+                                                        'sheetId': sheet_id,
+                                                        'startRowIndex': start_row + row_idx,
+                                                        'endRowIndex': start_row + row_idx + 1,
+                                                        'startColumnIndex': 7,  # Column H (0-indexed)
+                                                        'endColumnIndex': 8
+                                                    },
+                                                    'cell': {
+                                                        'userEnteredFormat': {
+                                                            'backgroundColor': {
+                                                                'red': 0.714,   # B6D7A8 in RGB (182/255)
+                                                                'green': 0.843, # (215/255)
+                                                                'blue': 0.659   # (168/255)
+                                                            }
+                                                        }
+                                                    },
+                                                    'fields': 'userEnteredFormat.backgroundColor'
+                                                }
+                                            })
+                                        elif p2_change > 0:  # Player 2 wins
+                                            format_requests.append({
+                                                'repeatCell': {
+                                                    'range': {
+                                                        'sheetId': sheet_id,
+                                                        'startRowIndex': start_row + row_idx,
+                                                        'endRowIndex': start_row + row_idx + 1,
+                                                        'startColumnIndex': 9,  # Column J (0-indexed)
+                                                        'endColumnIndex': 10
+                                                    },
+                                                    'cell': {
+                                                        'userEnteredFormat': {
+                                                            'backgroundColor': {
+                                                                'red': 0.714,   # B6D7A8 in RGB (182/255)
+                                                                'green': 0.843, # (215/255)
+                                                                'blue': 0.659   # (168/255)
+                                                            }
+                                                        }
+                                                    },
+                                                    'fields': 'userEnteredFormat.backgroundColor'
+                                                }
+                                            })
+                                else:
+                                    new_row[1] = ''
+                            else:
+                                new_row[1] = ''
+                            updated_rows.append(new_row)
+                        else:
+                            # For short rows, just pass them through
+                            updated_rows.append(row if row else [''])
+
+                    if updated_rows:
+                        # Update the entire score range with the ELO changes included
+                        self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.score_ranges[l - 1], valueInputOption='RAW', body={'values': updated_rows}).execute()
+
+                        # Apply formatting if we have any requests
+                        if format_requests:
+                            self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body={'requests': format_requests}).execute()
 
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE).execute()
             self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE, valueInputOption='RAW', body={'values': [[f'{self.date_str}']]}).execute()
