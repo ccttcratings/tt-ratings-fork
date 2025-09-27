@@ -1,0 +1,362 @@
+function hideInactivePlayers() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Ratings");
+  var active_list = sheet.getRange("D2:D").getValues();
+  sheet.showRows(2, active_list.length);
+  for (var i = 0; i < active_list.length; ++i) {
+    if (active_list[i][0] === "") {
+      break;
+    }
+    if (!active_list[i][0]) {
+      sheet.hideRows(i + 2);
+    }
+  }
+}
+
+function showInactivePlayers() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Ratings");
+  var active_list = sheet.getRange("D2:D").getValues();
+  sheet.showRows(2, active_list.length);
+}
+
+function newScoreSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var template_sheet = ss.getSheetByName("Template");
+  var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+  ss.insertSheet(date_str, 1, {template: template_sheet});
+}
+
+class Player {
+  constructor(name) {
+    this.name = name;
+    this.won_games = 0;
+    this.won_against = [];
+    this.match_diffs = {};
+    this.scores_w = {};
+    this.scores_l = {};
+    this.w_total = 0;
+    this.l_total = 0;
+  }
+}
+
+function sortWithIndeces(toSort, order) {
+  for (var i = 0; i < toSort.length; i++) {
+    toSort[i] = [toSort[i], i];
+  }
+  if (order == "ascending") {
+    toSort.sort(function(left, right) {
+      return left[0] < right[0] ? -1 : 1;
+    });
+  } else {
+    toSort.sort(function(left, right) {
+      return left[0] > right[0] ? -1 : 1;
+    });
+  }
+  toSort.sortIndices = [];
+  for (var j = 0; j < toSort.length; j++) {
+    toSort.sortIndices.push(toSort[j][1]);
+    toSort[j] = toSort[j][0];
+  }
+  return toSort;
+}
+
+function tiebreaker(player_list) {
+  // for (var i = 0; i < player_list.length; ++i) {
+  //   Logger.log(player_list[i].name + "  " + player_list[i].won_games);
+  // }
+  if (player_list.length == 2) {
+    Logger.log("Two way tiebreak.")
+    if (player_list[0].won_against.includes(player_list[1].name)) {
+      return [player_list[0], player_list[1]];
+    } else if (player_list[1].won_against.includes(player_list[0].name)) {
+      return [player_list[1], player_list[0]];
+    } else {
+      Logger.log("check scores");
+      var p1_w_total = player_list[0].scores_w[player_list[1].name].reduce((a, b) => a + b, 0);
+      var p1_l_total = player_list[0].scores_l[player_list[1].name].reduce((a, b) => a + b, 0);
+      var p2_w_total = player_list[1].scores_w[player_list[0].name].reduce((a, b) => a + b, 0);
+      var p2_l_total = player_list[1].scores_l[player_list[0].name].reduce((a, b) => a + b, 0);
+      var p1_check = p1_w_total / p1_l_total;
+      var p2_check = p2_w_total / p2_l_total;
+      Logger.log(player_list[0].name + " = " + p1_w_total + " / " + p1_l_total + " = " + p1_check);
+      Logger.log(player_list[1].name + " = " + p2_w_total + " / " + p2_l_total + " = " + p2_check);
+      if (p1_check > p2_check) {
+        return [player_list[0], player_list[1]];
+      } else {
+        return [player_list[1], player_list[0]];
+      }
+    }
+  } else if (player_list.length == 3) {
+    Logger.log("Three way tiebreak.")
+    
+    if (player_list[0].won_against.includes(player_list[1].name)) {
+      // 0 won 1, 1 won 2, 2 won 0
+      var p1 = player_list[0];
+      var p2 = player_list[1];
+      var p3 = player_list[2];
+      Logger.log("0 won 1, 1 won 2, 2 won 0");
+    } else if (player_list[0].won_against.includes(player_list[2].name)) {
+      // 0 won 2, 2 won 1, 1 won 0
+      var p1 = player_list[0];
+      var p2 = player_list[2];
+      var p3 = player_list[1];
+      Logger.log("0 won 2, 2 won 1, 1 won 0");
+    }
+
+    var new_player_list = [p1, p2, p3];
+    var ret_player_list = [];
+    if (p1.match_diffs[p2.name].length == p2.match_diffs[p3.name].length && 
+        p2.match_diffs[p3.name].length == p3.match_diffs[p1.name].length) {
+      var score_diffs = [p1.match_diffs[p2.name].reduce((a, b) => a + b, 0), 
+                         p2.match_diffs[p3.name].reduce((a, b) => a + b, 0),
+                         p3.match_diffs[p1.name].reduce((a, b) => a + b, 0)];
+      score_diffs = sortWithIndeces(score_diffs, "decending");
+      for (var i = 0; i < 3; ++i) {
+        var index = score_diffs.sortIndices[i];
+        ret_player_list.push(new_player_list[index]);
+      }
+    } else {
+      var game_counts = [p1.match_diffs[p2.name].length, p2.match_diffs[p3.name].length, p3.match_diffs[p1.name].length];
+      game_counts = sortWithIndeces(game_counts, "ascending");
+      if (game_counts[0] == game_counts[1]) {
+        var i_1 = game_counts.sortIndices[0];
+        var i_2 = game_counts.sortIndices[1];
+        var i_3 = game_counts.sortIndices[2];
+        if (new_player_list[i_1].won_against.includes(new_player_list[i_2].name)) {
+          ret_player_list = [new_player_list[i_1], new_player_list[i_2], new_player_list[i_3]];
+        } else {
+          ret_player_list = [new_player_list[i_2], new_player_list[i_1], new_player_list[i_3]];
+        }
+      } else {
+        for (var i = 0; i < 3; ++i) {
+          var index = game_counts.sortIndices[i];
+          ret_player_list.push(new_player_list[index]);
+        }
+      }
+    }
+    return ret_player_list;
+  }
+}
+
+function findMatchWinner(scores) {
+  var p1_win_count = 0;
+  var p2_win_count = 0;
+  var p1_scores_w = [];
+  var p1_scores_l = [];
+  var p2_scores_w = [];
+  var p2_scores_l = [];
+  var p1vp2_score_diffs = [];
+  var p2vp1_score_diffs = [];
+  for (var i = 0; i < scores.length / 2; ++i) {
+    var p1_col = i * 2;
+    var p2_col = p1_col + 1;
+    var score_diff = scores[p1_col] - scores[p2_col];
+    if (score_diff > 0) {
+      ++p1_win_count;
+    } else {
+      ++p2_win_count;
+    }
+    p1_scores_w.push(scores[p1_col]);
+    p1_scores_l.push(scores[p2_col]);
+    p2_scores_w.push(scores[p2_col]);
+    p2_scores_l.push(scores[p1_col]);
+    p1vp2_score_diffs.push(score_diff);
+    p2vp1_score_diffs.push(-score_diff);
+  }
+  winner_id = -1;
+  if (p1_win_count > p2_win_count) {
+    winner_id = 1;
+  } else if (p1_win_count < p2_win_count) {
+    winner_id = 2;
+  } else if (p1_win_count == 0 && p2_win_count == 0) {
+    winner_id = 0;
+  } else {
+    winner_id = 3;
+  }
+  return [winner_id, p1vp2_score_diffs, p1_scores_w, p1_scores_l, p2vp1_score_diffs, p2_scores_w, p2_scores_l]
+}
+
+function findWinners() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+  var player_list = sheet.getRangeList(["B2:B7", "B19:B24", "B36:B41"]).getRanges();
+  var league_results = {};
+  for (var i = 0; i < 3; ++i) {
+    var results = {};
+    var player_names = player_list[i].trimWhitespace().getValues();
+    for (var j = 0; j < 6; j++) {
+      if (player_names[j][0] !== "") {
+        results[player_names[j][0]] = new Player(player_names[j][0]);
+      }
+    }
+    league_results[i] = results;
+  }
+  
+  var score_list = sheet.getRangeList(["H2:T16", "H19:T33", "H36:T50"]).getRanges();
+  for (var i = 0; i < 3; ++i) {
+    var base_index = i * 17 + 2;
+    sheet.getRange(base_index, 6, 15, 2).setBackground("#d9d9d9");
+
+    var league_scores = score_list[i].trimWhitespace().getValues();
+    for (var j = 0; j < 15; ++j) {
+      var match_scores = league_scores[j];
+      if (match_scores[0] === "" || match_scores[1] === "") {
+        continue;
+      }
+      var p1_name = match_scores[0];
+      var p2_name = match_scores[1];
+      var [winner_id, p1vp2_score_diffs, p1_scores_w, p1_scores_l, p2vp1_score_diffs, p2_scores_w, p2_scores_l] = 
+          findMatchWinner(match_scores.filter(n => typeof n === "number"));
+      if (winner_id == 1) {
+        ++league_results[i][p1_name].won_games;
+        league_results[i][p1_name].won_against.push(p2_name);
+        sheet.getRange(base_index + j, 6).setBackground("#ea9999");
+      } else if (winner_id == 2) {
+        ++league_results[i][p2_name].won_games;
+        league_results[i][p2_name].won_against.push(p1_name);
+        sheet.getRange(base_index + j, 7).setBackground("#ea9999");
+      } else if (winner_id == 3) {
+        sheet.getRange(base_index + j, 6).setBackground("#b3a7d7");
+        sheet.getRange(base_index + j, 7).setBackground("#b3a7d7");
+      }
+
+      league_results[i][p1_name].match_diffs[p2_name] = p1vp2_score_diffs;
+      league_results[i][p2_name].match_diffs[p1_name] = p2vp1_score_diffs;
+      league_results[i][p1_name].scores_w[p2_name] = p1_scores_w;
+      league_results[i][p1_name].scores_l[p2_name] = p1_scores_l;
+      league_results[i][p2_name].scores_w[p1_name] = p2_scores_w;
+      league_results[i][p2_name].scores_l[p1_name] = p2_scores_l;
+    }
+  }
+
+  for (var i = 0; i < 3; i++) {
+    var winner = new Player("");
+    var player_names = Object.keys(league_results[i]);
+    var ties = [];
+    for (var j = 0; j < player_names.length; ++j) {
+      var name = player_names[j];
+      if (league_results[i][name].won_games > winner.won_games) {
+        winner = league_results[i][name];
+        ties = []
+      } else if (league_results[i][name].won_games == winner.won_games) {
+        // tie breaker
+        if (ties.length > 0 && winner.won_games > ties[0].won_games) {
+          ties = [];
+        }
+        ties.push(league_results[i][name]);
+        continue;
+      }
+    }
+    if (ties.length > 0 && winner.won_games == ties[0].won_games) {
+      ties.push(winner);
+      var p_list = tiebreaker(ties);
+      winner = p_list[0];
+    }
+    if (i == 0) {
+      var range = "B10";
+      if (ties.length > 0) {
+        var ties_range = "B12:B13";
+        var ties_names = [];
+        for (var j = 1; j < 3; ++j) {
+          if (j + 1 > p_list.length) {
+            ties_names.push([""]);
+          } else {
+            ties_names.push([p_list[j].name]);
+          }
+        }
+      }
+    } else if (i == 1) {
+      var range = "B27";
+      if (ties.length > 0) {
+        var ties_range = "B29:B30";
+        var ties_names = [];
+        for (var j = 1; j < 3; ++j) {
+          if (j + 1 > p_list.length) {
+            ties_names.push([""]);
+          } else {
+            ties_names.push([p_list[j].name]);
+          }
+        }
+      }
+    } else {
+      var range = "B44";
+      if (ties.length > 0) {
+        var ties_range = "B46:B47";
+        var ties_names = [];
+        for (var j = 1; j < 3; ++j) {
+          if (j + 1 > p_list.length) {
+            ties_names.push([""]);
+          } else {
+            ties_names.push([p_list[j].name]);
+          }
+        }
+      }
+    }
+    // Logger.log(winner.name);
+    sheet.getRange(range).setValue(winner.name);
+    if (ties.length > 0) {
+      // Logger.log(ties_names);
+      sheet.getRange(ties_range).setValues(ties_names);
+    }
+  }
+}
+
+function sortDictByValue(toSort) {
+  var sorted = [];
+  for (var i = 0; i < toSort.length; i++) {
+    sorted[i] = [toSort[i], i];
+  }
+  
+  sorted.sort(function(left, right) {
+    return left[0] > right[0] ? -1 : 1;
+  });
+  sorted.sortIndices = [];
+  for (var j = 0; j < sorted.length; j++) {
+    sorted.sortIndices.push(sorted[j][1]);
+    sorted[j] = sorted[j][0];
+  }
+  return sorted;
+}
+
+function findTopWinnersAndParticipants() {
+  var year = "2024";
+  var all_sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  var win_count = {};
+  var participation_count = {};
+
+  for (const sheet of all_sheets) {
+    Logger.log(sheet.getSheetName());
+    if (sheet.getSheetName().split("-")[0] === "Ratings") {
+      continue;
+    } else if (sheet.getSheetName().split("-")[0] === year) {
+      var p1_name = sheet.getRange("B10").trimWhitespace().getValue();
+      var p2_name = sheet.getRange("B27").trimWhitespace().getValue();
+      var p3_name = sheet.getRange("B44").trimWhitespace().getValue();
+      // Logger.log(p1_name.split(" ")[0] + " " + p2_name.split(" ")[0] + " " + p3_name.split(" ")[0]);
+      if (p1_name !== "") {
+        var f_name = p1_name.split(" ")[0];
+        if (!(f_name in win_count)) {
+          win_count[f_name] = 0;
+        }
+        ++win_count[f_name];
+      }
+      if (p2_name !== "") {
+        var f_name = p2_name.split(" ")[0];
+        if (!(f_name in win_count)) {
+          win_count[f_name] = 0;
+        }
+        ++win_count[f_name];
+      }
+      if (p3_name !== "") {
+        var f_name = p3_name.split(" ")[0];
+        if (!(f_name in win_count)) {
+          win_count[f_name] = 0;
+        }
+        ++win_count[f_name];
+      }
+    } else {
+      break;
+    }
+  }
+  Logger.log(win_count);
+
+}

@@ -342,13 +342,14 @@ class GoogleSheet():
     # The ID and range of a sample spreadsheet.
     SPREADSHEET_ID = '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg'
 
-    RATINGS_HEADERS_RANGE = 'Ratings!C1:C1'
-    RATINGS_RANGE = 'Ratings!A2:D'
-    PLAYERS_RANGE = 'Ratings!B2:D'
+    RATINGS_HEADERS_RANGE = 'Ratings!D1:D1'
+    RATINGS_RANGE = 'Ratings!A2:E'
+    PLAYERS_RANGE = 'Ratings!B2:E'
 
     def __init__(self, date_str, cred_file="google_cred.json"):
         self.date_str = date_str
         self.ratings_range = [f'{date_str}!C2:E7', f'{date_str}!C19:E24', f'{date_str}!C36:E41']
+        self.match_elo_ranges = [f'{date_str}!F2:G16', f'{date_str}!F19:G33', f'{date_str}!F36:G50']  # New ranges for match ELO changes
         self.score_ranges = [f'{date_str}!H2:S16', f'{date_str}!H19:S33', f'{date_str}!H36:S50']
         self.player_ranges = [f'{date_str}!B2:B7', f'{date_str}!B19:B24', f'{date_str}!B36:B41']
         self.creds = None
@@ -397,8 +398,16 @@ class GoogleSheet():
                 result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID, range=r).execute()
                 scores = result.get('values', [])
                 for row in scores:
-                    row[:2] = map(str.strip, row[:2])
-                    row[2:] = map(int, row[2:])
+                    if len(row) >= 2:
+                        # First two columns are player names
+                        row[:2] = [s.strip() if s else '' for s in row[:2]]
+                        # Convert score columns to integers (columns 2 onwards)
+                        for i in range(2, len(row)):
+                            try:
+                                row[i] = int(row[i])
+                            except (ValueError, TypeError):
+                                # If conversion fails, keep as is (might be empty)
+                                pass
                 self.scores.extend(scores)
         except HttpError as err:
             print(f'Failed to get league scores, error: {err}')
@@ -441,7 +450,7 @@ class GoogleSheet():
             exit(1)
         return self.all_players
 
-    def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days):
+    def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days, match_rating_changes: dict = None):
         try:
             all_player_ratings = []
             league_player_ratings = {}
@@ -461,9 +470,10 @@ class GoogleSheet():
                 active_player = True
                 if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > active_days:
                     active_player = False
-                all_player_ratings.append([ranking, k, v[0], active_player])
+                all_player_ratings.append([ranking, k, v[0], rating_diff if k in self.all_players else '', active_player])
                 print(f'{k}     active:{active_player}')
 
+            # Update player ratings in league sheets
             for l in self.players_per_league:
                 values = []
                 for p in self.players_per_league[l]:
@@ -472,6 +482,37 @@ class GoogleSheet():
                     else:
                         values.append(league_player_ratings[p])
                 self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.ratings_range[l - 1], valueInputOption='RAW', body={'values': values}).execute()
+
+            # Write match ELO changes to the sheet
+            if match_rating_changes:
+                for l in self.players_per_league:
+                    match_elo_values = []
+                    # Get the scores for this league to match with rating changes
+                    league_scores = []
+                    try:
+                        result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID, range=self.score_ranges[l - 1]).execute()
+                        league_scores = result.get('values', [])
+                    except HttpError:
+                        pass
+
+                    for row in league_scores:
+                        if len(row) >= 2:
+                            p1_name = row[0].strip() if row[0] else ''
+                            p2_name = row[1].strip() if row[1] else ''
+                            if p1_name and p2_name:
+                                match_key = (p1_name, p2_name)
+                                if match_key in match_rating_changes:
+                                    p1_change, p2_change = match_rating_changes[match_key]
+                                    match_elo_values.append([f'{p1_change:+.2f}', f'{p2_change:+.2f}'])
+                                else:
+                                    match_elo_values.append(['', ''])
+                            else:
+                                match_elo_values.append(['', ''])
+                        else:
+                            match_elo_values.append(['', ''])
+
+                    if match_elo_values:
+                        self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.match_elo_ranges[l - 1], valueInputOption='RAW', body={'values': match_elo_values}).execute()
 
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE).execute()
             self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE, valueInputOption='RAW', body={'values': [[f'{self.date_str}']]}).execute()
@@ -508,11 +549,13 @@ class GoogleSheet():
 
 def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
     rating_changes = {}
+    match_rating_changes = {}  # Store individual match rating changes
     for row in league_scores:
-        if len(row) < 2:
+        if len(row) < 3:
             continue
         p1_name = row[0]
-        p2_name = row[1]
+        # Skip the empty column (row[1]) and get player 2 from row[2]
+        p2_name = row[2] if len(row) > 2 else ''
         if p1_name == '' or p2_name == '':
             continue
         p1_rating = current_ratings[p1_name][0]
@@ -522,20 +565,26 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
         score_diffs_p1vp2 = []
         score_diffs_p2vp1 = []
         for game in range(5): # the match is best of 5
-            idx = game * 2 + 2
+            # Adjust index to skip the empty column
+            idx = game * 2 + 3
             try:
                 score1 = row[idx]
                 score2 = row[idx +1]
-                if (not np.isnan(score1)) and (not np.isnan(score2)):
+                # Check if scores are valid integers
+                if isinstance(score1, int) and isinstance(score2, int):
                     score_diffs_p1vp2.append(score1 - score2)
                     score_diffs_p2vp1.append(score2 - score1)
-            except IndexError:
+            except (IndexError, TypeError, ValueError):
                 break
         if (len(score_diffs_p1vp2) > 0) and (len(score_diffs_p2vp1) > 0):
             new_p1_rating = p1.add_match_against(p2, score_diffs_p1vp2, print_out)
             new_p2_rating = p2.add_match_against(p1, score_diffs_p2vp1, print_out)
             if print_out:
                 print()
+
+            # Store individual match rating changes
+            match_key = (p1_name, p2_name)
+            match_rating_changes[match_key] = (new_p1_rating - p1_rating, new_p2_rating - p2_rating)
 
             if p1_name not in rating_changes:
                 rating_changes[p1_name] = [new_p1_rating - p1_rating]
@@ -557,7 +606,7 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
             new_ratings[player][1] = current_ratings[player][1]
     new_ratings = dict(sorted(new_ratings.items(), key=lambda item: item[1][0], reverse=True))
 
-    return new_ratings
+    return new_ratings, match_rating_changes
 
 
 def get_rating_diffs(current_ratings, new_ratings):
@@ -657,7 +706,7 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
                     return
 
     print('Calculating new ratings...')
-    new_ratings = calculate_new_ratings(current_ratings, league_scores, date_str, print_out)
+    new_ratings, match_rating_changes = calculate_new_ratings(current_ratings, league_scores, date_str, print_out)
     rating_increased, rating_decreased = get_rating_diffs(current_ratings, new_ratings)
 
     if print_out:
@@ -689,7 +738,7 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
         print('Updating database and spreadsheet...')
         mongodb.backup()
         mongodb.set_new_ratings(new_ratings, new_emails)
-        google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased, active_days)
+        google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased, active_days, match_rating_changes)
         print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
@@ -708,17 +757,19 @@ def update_database_from_sheet(date_str, cert_file, google_cred, active_days, ex
     current_ratings = mongodb.get_current_ratings()
 
     for player in current_ratings:
-        league_scores[player][1] = current_ratings[player][1]
+        if player in league_scores:
+            league_scores[player][1] = current_ratings[player][1]
 
     print('Calculating new ratings...')
     rating_increased, rating_decreased = get_rating_diffs(current_ratings, league_scores)
 
     if print_out:
         for i in current_ratings:
-            print(f'{i}')
-            print(
-                f'  {round(current_ratings[i][0], 2): >7.02f}   =>   {round(league_scores[i][0] - current_ratings[i][0], 2): >+7.02f}   =>   {round(league_scores[i][0], 2): >7.02f}')
-            print()
+            if i in league_scores:
+                print(f'{i}')
+                print(
+                    f'  {round(current_ratings[i][0], 2): >7.02f}   =>   {round(league_scores[i][0] - current_ratings[i][0], 2): >+7.02f}   =>   {round(league_scores[i][0], 2): >7.02f}')
+                print()
 
     google_sheet.print_active_status(league_scores, rating_increased, rating_decreased, active_days)
     if execute:
