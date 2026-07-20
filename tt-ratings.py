@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-from ast import arg
-from bson.json_util import dumps
 from pymongo import MongoClient, ASCENDING, DESCENDING
+import certifi
 from datetime import datetime
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -10,8 +9,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.auth.exceptions import RefreshError
-import numpy as np
-import pandas as pd
+from collections import Counter
 import argparse
 import copy
 import os.path
@@ -22,44 +20,14 @@ class ELO:
     def __init__(self):
         self.match_K = 5
         self.game_K = 40
-        return
 
     def update_rating(self, player1_rating, player2_rating, score_differentials):
-        # e = self.expected_result(player1_rating, player2_rating)
-        # match_K = self.match_K
-        # match_update_vals = []
-        #
-        # if len(score_differentials) < 3:
-        #     print("Invalid Game: Not Enough Matches")
-        #     exit(1)
-        #
-        # for match_score_diff in score_differentials:
-        #     if match_score_diff > 0:
-        #         rating_winner = player1_rating
-        #         rating_loser = player2_rating
-        #     else:
-        #         rating_winner = player2_rating
-        #         rating_loser = player1_rating
-        #
-        #     g = (np.log(np.abs(match_score_diff) + 1) * (2.2 / ((rating_winner - rating_loser) * 0.001 + 2.2)))
-        #     w = 1 if match_score_diff > 0 else 0
-        #
-        #     update_val = (match_K * g) * (w - e)
-        #     match_update_vals.append(update_val)
-        #
-        # match_update_val = np.sum(match_update_vals)
-
         results = [0 if diff < 0 else 1 for diff in score_differentials]
 
-        win_dict = {0: 0, 1: 0}
-        win_dict.update(pd.Series(results).value_counts().to_dict())
-        game_score_diff = win_dict[1] - win_dict[0]
+        counts = Counter(results)
+        game_score_diff = counts[1] - counts[0]
         rating_diff = player1_rating - player2_rating
         rating_change = self.rating_change(rating_diff, game_score_diff)
-        # g = np.log(np.abs(game_score_diff) + 1) * (2.2 / ((rating_winner - rating_loser) * 0.001 + 2.2))
-        # w = pd.Series(results).value_counts().idxmax()
-        # game_update_val = (self.game_K * g) * (w - e)
-        # return player1_rating + (game_update_val + match_update_val) / 2
         return player1_rating + rating_change
 
     def expected_result(self, player1_rating, player2_rating):
@@ -82,9 +50,9 @@ class ELO:
             is_winner = not is_higher_rated  # Lower rated player "wins" the tie
             is_expected = False  # A tie is never the expected result
 
-        rating_range_list = [14, 27.75, 41.25, 54.5, 67.5, 80.25, 92.75, 105, 117, 128.75, 140.25, 151.5, 162.5,
-                             173.25, 183.75, 194, 204, 213.75, 223.25, 232.5, 241.5, 250.25, 258.75, 267, 275,
-                             282.75, 290.25, 297.5, 304.5, 311.25, 317.75, 324]
+        rating_range_list = [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195,
+                             210, 225, 240, 255, 270, 285, 300, 315, 330, 345, 360, 375,
+                             390, 405, 420, 435, 450, 465, 480]
 
         rating_change_expected_dict = {0: [4, 6, 8],
                                        1: [3.25, 5.5, 7.75],
@@ -169,10 +137,9 @@ class ELO:
 
         return rating_offset
 
-
 class Player:
 
-    def __init__(self, name, rating = None):
+    def __init__(self, name, rating=None):
         self.name = name
         self.matches_history = None
 
@@ -180,7 +147,6 @@ class Player:
             self.rating = rating
         else:
             self.rating = 1000
-        return
 
     def add_match_against(self, player: 'Player', score_differentials: list, print_out):
         e = ELO()
@@ -198,44 +164,24 @@ class Player:
             print(rating_change_str)
         return new_rating
 
-
 class MongoDB():
+    CONNECTION_URI = '***REMOVED***'
 
-    CONNECTION_URI = 'mongodb+srv://duke-cluster.ops3ljm.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority'
+    def __init__(self, date_str):
+        client = MongoClient(
+            self.CONNECTION_URI,
+            tlsCAFile=certifi.where()
+        )
 
-    def __init__(self, date_str, cert_file='mongodb_cert.pem'):
-        # client = MongoClient('localhost', 27017)
-        if not os.path.exists(cert_file):
-            print(f'Missing mongodb cert file: {cert_file}')
-            exit(1)
-        client = MongoClient(self.CONNECTION_URI, tls=True, tlsCertificateKeyFile=cert_file)
-        db = client['ccttc_ratings']
-        self.collection = db['players']
+        db = client['CCTTC-Players-RatingsDB']
+        self.collection = db['CCTTC-Players-Ratings']
 
         self.all_players = None
         self.current_ratings = {}
         self.date_str = date_str
 
-        return
-
-    def backup(self):
-        cursor = self.collection.find()
-        backup_file_name = f'ratings_before_{self.date_str}_'
-        count = 0
-        while True:
-            if os.path.exists(f'{backup_file_name}{count}.json'):
-                count += 1
-            else:
-                backup_file_name = f'{backup_file_name}{count}.json'
-                break
-
-        with open(backup_file_name, 'w') as out_file:
-            for d in cursor:
-                out_file.write(dumps(d) + '\n')
-        return
-
     def get_all_players(self):
-        self.all_players = self.collection.find().sort('current_rating', DESCENDING)
+        self.all_players = self.collection.find().sort('Ratings', DESCENDING)
         return self.all_players
 
     def get_current_ratings(self):
@@ -243,14 +189,31 @@ class MongoDB():
             self.get_all_players()
 
         self.all_players.rewind()
+        self.current_ratings = {}
+
         for p in self.all_players:
-            self.current_ratings[p['name']] = p['historical_ratings'][-1]
+            if 'rating_history' in p and len(p['rating_history']) > 0:
+                last_entry = p['rating_history'][-1]
+
+                # Case A: If it's the new dictionary format {'rating': 1500, 'date': ...}
+                if isinstance(last_entry, dict):
+                    self.current_ratings[p['name']] = float(last_entry.get('rating', 1000.0))
+
+                # Case B: If it's the old list format [1500, 'date']
+                elif isinstance(last_entry, list):
+                    self.current_ratings[p['name']] = float(last_entry[0])
+
+                else:
+                    self.current_ratings[p['name']] = 1000.0
+            else:
+                self.current_ratings[p['name']] = 1000.0
+
         return self.current_ratings
 
     def get_player_history(self, player_name: str):
         player_info = self.collection.find_one({'name': player_name})
         if player_info is not None:
-            return player_info['historical_ratings']
+            return player_info.get('rating_history', [])
         else:
             return []
 
@@ -262,7 +225,7 @@ class MongoDB():
 
             self.all_players.rewind()
             for p in self.all_players:
-                ratings_history[p['name']] = p['historical_ratings']
+                ratings_history[p['name']] = p.get('rating_history', [])
         else:
             for p in player_list:
                 ratings_history[p] = self.get_player_history(p)
@@ -272,92 +235,228 @@ class MongoDB():
         if self.all_players is None:
             self.get_all_players()
 
-        last_update = datetime.strptime('2000-01-01', '%Y-%m-%d').replace(hour=14)
+        last_update = datetime.strptime('01-01-2025', '%m-%d-%Y').replace(hour=14)
         self.all_players.rewind()
         for p in self.all_players:
-            last_update = p['last_played'] if p['last_played'] > last_update else last_update
+            player_date = p.get('Ratings', last_update)
+            last_update = player_date if player_date > last_update else last_update
         return last_update
 
-    def set_new_ratings(self, new_ratings: dict, new_emails: dict=None):
+    def set_new_ratings(self, new_ratings: dict, new_emails: dict = None):
         for k, v in new_ratings.items():
             player = self.collection.find_one({'name': k})
             r = float(v[0])
             d = v[1]
+
+            email_val = new_emails.get(k,
+                                       f"unknown_{k.lower().replace(' ', '_')}@ccttc.com") if new_emails else f"unknown_{k.lower().replace(' ', '_')}@ccttc.com"
+
             if player is None:
                 new_player = {
                     'name': k,
-                    'email': new_emails[k],
+                    'emails': [email_val],
                     'leagues_played': 1,
-                    'last_played': d,
-                    'current_rating': r,
-                    'historical_ratings': [[r, d]]
+                    'Ratings': d,
+                    'rating_history': [
+                        {
+                            'date': d,
+                            'rating': r
+                        }
+                    ]
                 }
                 self.collection.insert_one(new_player)
             else:
-                if player['last_played'] < d:
-                    player['historical_ratings'].append([r, d])
+                last_played_date = player.get('Ratings', datetime.min)
+                if last_played_date < d:
+                    # Target history tracking list
+                    history_list = player.get('rating_history', [])
+                    history_list.append({
+                        'date': d,
+                        'rating': r
+                    })
+
                     self.collection.update_one(
                         {'name': k},
                         {
                             '$inc': {'leagues_played': 1},
                             '$set': {
-                                'last_played': d,
-                                'current_rating': r,
-                                'historical_ratings': player['historical_ratings']
+                                'Ratings': d,
+                                'rating_history': history_list
                             }
                         }
                     )
-        return
 
-    def update_ratings_from_sheet(self, new_ratings: dict, new_emails: dict=None):
-        for k, v in new_ratings.items():
-            player = self.collection.find_one({'name': k})
+    def update_ratings_from_sheet(self, new_ratings: dict, new_emails: dict = None):
+        if new_emails is None:
+            new_emails = {}
+
+        ratings_updated_count = 0
+        names_updated_count = 0
+
+        # Get all database players sorted by current rating to match with sheet order
+        all_db_players = list(self.collection.aggregate([
+            {'$addFields': {
+                'last_rating': {'$last': '$rating_history.rating'}
+            }},
+            {'$sort': {'last_rating': DESCENDING}}
+        ]))
+
+        # Create a list of sheet players in order (already sorted by rating)
+        sheet_players_in_order = list(new_ratings.items())
+
+        for sheet_idx, (sheet_name, v) in enumerate(sheet_players_in_order):
             r = float(v[0])
             d = v[1]
+
+            # First try to find by exact name match
+            player = self.collection.find_one({'name': sheet_name})
+
+            # If no exact match, try to find by position/index (matching by rank)
+            if player is None and sheet_idx < len(all_db_players):
+                # Try matching by position - the Nth player in sheet corresponds to Nth in DB
+                potential_match = all_db_players[sheet_idx]
+
+                # Extract actual current rating from rating_history
+                hist = potential_match.get('rating_history', [])
+                if hist:
+                    last = hist[-1]
+                    match_rating = float(last['rating']) if isinstance(last, dict) else float(last[0])
+                else:
+                    match_rating = 1000.0
+                if abs(match_rating - r) < 50:
+                    player = potential_match
+                    old_name = player['name']
+                    print(f'Name change detected: "{old_name}" -> "{sheet_name}"')
+
             if player is None:
+                # New player
+                email_cb = new_emails.get(sheet_name, ['', ''])
+                if isinstance(email_cb, list):
+                    email_cb = email_cb[0] if email_cb[0] else ''
                 new_player = {
-                    'name': k,
-                    'email': new_emails[k],
+                    'name': sheet_name,
+                    'emails': [email_cb] if email_cb else [],
                     'leagues_played': 1,
-                    'last_played': d,
-                    'current_rating': r,
-                    'historical_ratings': [[r, d]]
+                    'Ratings': d,
+                    'rating_history': [
+                        {
+                            'date': d,
+                            'rating': r
+                        }
+                    ]
                 }
                 self.collection.insert_one(new_player)
+                print(f'Added new player: {sheet_name}')
             else:
-                player['historical_ratings'].append([r, d])
-                self.collection.update_one(
-                    {'name': k},
-                    {
-                        '$set': {
-                            'current_rating': r,
-                            'historical_ratings': player['historical_ratings']
-                        }
-                    }
-                )
-        return
+                # Existing player - update rating, name, and optionally email
+                old_hist = player.get('rating_history', [])
+                if old_hist:
+                    last_old = old_hist[-1]
+                    old_rating = float(last_old['rating']) if isinstance(last_old, dict) else float(last_old[0])
+                else:
+                    old_rating = 1000.0
+                old_name = player['name']
+                rating_diff = r - old_rating
 
-    def remove_league(self):
-        return
+                update_dict = {}
 
+                # Only append history entry if the rating actually changed
+                if abs(rating_diff) > 0.01:
+                    history_entry = {'date': d, 'rating': r}
+                    history_list = player.get('rating_history', [])
+                    history_list.append(history_entry)
+                    update_dict['Ratings'] = d
+                    update_dict['rating_history'] = history_list
+                    print(f'Updated rating for {sheet_name}: {old_rating:.2f} -> {r:.2f} ({rating_diff:+.2f})')
+                    ratings_updated_count += 1
 
+                # Update name if it has changed
+                if old_name != sheet_name:
+                    update_dict['name'] = sheet_name
+                    print(f'Updated name: "{old_name}" -> "{sheet_name}"')
+                    names_updated_count += 1
+
+                # Update emails if provided in new_emails
+                if sheet_name in new_emails:
+                    email_data = new_emails[sheet_name]
+                    if isinstance(email_data, list):
+                        email_cb = email_data[0] if email_data[0] else ''
+                        email_cd = email_data[1] if len(email_data) > 1 and email_data[1] else ''
+                    else:
+                        email_cb = email_data
+                        email_cd = ''
+                    new_emails_list = []
+                    if email_cb:
+                        new_emails_list.append(email_cb)
+                    if email_cd:
+                        new_emails_list.append(email_cd)
+                    if new_emails_list:
+                        update_dict['emails'] = new_emails_list
+                        print(f'Updated emails for {sheet_name}: {new_emails_list}')
+
+                if update_dict:
+                    self.collection.update_one(
+                        {'_id': player['_id']},
+                        {'$set': update_dict}
+                    )
+
+        if ratings_updated_count > 0:
+            print(f'\nUpdated ratings for {ratings_updated_count} players')
+        if names_updated_count > 0:
+            print(f'Updated names for {names_updated_count} players')
+
+    def update_emails_only(self, player_emails: dict):
+        """Update emails for players without changing their ratings"""
+        if not player_emails:
+            return
+
+        updated_count = 0
+        for player_name, email_data in player_emails.items():
+            player = self.collection.find_one({'name': player_name})
+            if player is not None:
+                if isinstance(email_data, list):
+                    email_cb = email_data[0] if email_data[0] else ''
+                    email_cd = email_data[1] if len(email_data) > 1 and email_data[1] else ''
+                else:
+                    email_cb = email_data
+                    email_cd = ''
+                new_emails_list = []
+                if email_cb:
+                    new_emails_list.append(email_cb)
+                if email_cd:
+                    new_emails_list.append(email_cd)
+                current_emails = player.get('emails', [])
+                if current_emails != new_emails_list:
+                    self.collection.update_one(
+                        {'name': player_name},
+                        {'$set': {'emails': new_emails_list}}
+                    )
+                    print(f'Updated emails for {player_name}: {new_emails_list}')
+                    updated_count += 1
+            else:
+                print(f'Player "{player_name}" not found in database, skipping email update')
+
+        if updated_count > 0:
+            print(f'\nUpdated emails for {updated_count} players')
+
+    
 class GoogleSheet():
-
     # If modifying these scopes, delete the file token.json.
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
     # The ID and range of a sample spreadsheet.
     SPREADSHEET_ID = '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg'
 
-    RATINGS_HEADERS_RANGE = 'Ratings!D1:D1'
-    RATINGS_RANGE = 'Ratings!A2:E'
-    PLAYERS_RANGE = 'Ratings!B2:E'
+    RATINGS_HEADERS_RANGE = 'Ratings!C1:C1'
+    RATINGS_RANGE = 'Ratings!A2:D'
+    PLAYERS_RANGE = 'Ratings!B2:D'
 
     def __init__(self, date_str, cred_file="google_cred.json"):
         self.date_str = date_str
-        self.ratings_range = [f'{date_str}!C2:E7', f'{date_str}!C19:E24', f'{date_str}!C36:E41']
-        self.score_ranges = [f'{date_str}!H2:S16', f'{date_str}!H19:S33', f'{date_str}!H36:S50']
-        self.player_ranges = [f'{date_str}!B2:B7', f'{date_str}!B19:B24', f'{date_str}!B36:B41']
+        self.ratings_range = [f'{date_str}!D3:F8', f'{date_str}!D20:F25', f'{date_str}!D37:F42']
+        self.score_ranges = [f'{date_str}!I3:U17', f'{date_str}!I20:U34', f'{date_str}!I37:U51']
+        self.player_ranges = [f'{date_str}!C3:C8', f'{date_str}!C20:C25', f'{date_str}!C37:C42']
+        self.point_winner_ranges = [f'{date_str}!D12', f'{date_str}!D29', f'{date_str}!D46']
         self.creds = None
         self.sheet = None
         self.scores = []
@@ -384,7 +483,6 @@ class GoogleSheet():
             # Save the credentials for the next run
             with open('token.json', 'w') as token:
                 token.write(self.creds.to_json())
-        return
 
     def get_sheet(self):
         try:
@@ -405,14 +503,11 @@ class GoogleSheet():
                 scores = result.get('values', [])
                 for row in scores:
                     if len(row) >= 2:
-                        # First two columns are player names
                         row[:2] = [s.strip() if s else '' for s in row[:2]]
-                        # Convert score columns to integers (columns 2 onwards)
                         for i in range(2, len(row)):
                             try:
                                 row[i] = int(row[i])
                             except (ValueError, TypeError):
-                                # If conversion fails, keep as is (might be empty)
                                 pass
                 self.scores.extend(scores)
         except HttpError as err:
@@ -420,7 +515,7 @@ class GoogleSheet():
             exit(1)
         return self.scores
 
-    def get_all_ratings(self):
+    def get_all_ratings(self, allow_missing_dates=False):
         if self.sheet is None:
             self.get_sheet()
 
@@ -429,8 +524,38 @@ class GoogleSheet():
             ratings = values.get('values', [])
 
             player_ratings = {}
+            skipped_count = 0
             for player in ratings:
-                player_ratings[player[0]] = [float(player[1]), player[2]]
+                # Check if we have at least name and rating
+                if len(player) < 2 or not player[0] or not player[1]:
+                    skipped_count += 1
+                    continue
+
+                player_name = player[0].strip()
+
+                # Try to parse rating
+                try:
+                    rating = float(player[1])
+                except (ValueError, TypeError):
+                    print(f'Warning: Skipping invalid rating for player: {player_name}')
+                    skipped_count += 1
+                    continue
+
+                # Handle date - use from sheet if available, otherwise placeholder
+                if len(player) >= 3 and player[2]:
+                    date = player[2]
+                elif allow_missing_dates:
+                    # Placeholder - will be replaced with existing date from database
+                    date = None
+                else:
+                    skipped_count += 1
+                    continue
+
+                player_ratings[player_name] = [rating, date]
+
+            if skipped_count > 0:
+                print(f'Skipped {skipped_count} rows with incomplete data')
+
             return player_ratings
         except HttpError as err:
             print(f'Failed to get current ratings, error: {err}')
@@ -456,27 +581,113 @@ class GoogleSheet():
             exit(1)
         return self.all_players
 
-    def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days, match_rating_changes: dict = None):
+    def get_player_emails_from_sheet(self):
+        """Get all player emails from columns CB and CD of the Ratings sheet"""
+        if self.sheet is None:
+            self.get_sheet()
+
         try:
+            # Read player names (column B) and emails (columns CB, CD) together
+            result = self.sheet.values().get(
+                spreadsheetId=self.SPREADSHEET_ID,
+                range='Ratings!B2:CD'
+            ).execute()
+
+            values = result.get('values', [])
+            player_emails = {}
+
+            for row in values:
+                if row and row[0]:  # If there's a player name in column B
+                    player_name = row[0].strip()
+                    # Column B = index 0
+                    # CB is 78 columns after B (index 78)
+                    # CD is 80 columns after B (index 80)
+                    email_cb = row[78].strip() if len(row) > 78 and row[78] else ''
+                    email_cd = row[80].strip() if len(row) > 80 and row[80] else ''
+                    if email_cb or email_cd:
+                        player_emails[player_name] = [email_cb, email_cd]
+
+            print(f'Retrieved {len(player_emails)} player emails from Ratings sheet')
+            return player_emails
+        except HttpError as err:
+            print(f'Failed to get player emails: {err}')
+            return {}
+
+    def update_player_emails_in_sheet(self, player_emails, all_player_names, new_emails=None):
+        """Update player emails in columns CB and CD for all ranked players"""
+        if self.sheet is None:
+            self.get_sheet()
+
+        try:
+            # Clear old emails in CB and CD from row 2 onward
+            max_clear_row = max(len(all_player_names) + 5, 200)
+            self.sheet.values().clear(
+                spreadsheetId=self.SPREADSHEET_ID,
+                range=f'Ratings!CB2:CD{max_clear_row}'
+            ).execute()
+
+            # Build email data for every row in the rankings (CB and CD written separately)
+            email_data = []
+            row_num = 2
+            for player_name in all_player_names:
+                email_cb = ''
+                email_cd = ''
+                if player_name and player_name != '---' and player_name != 'Not in Database':
+                    if player_emails and player_name in player_emails:
+                        email_cb = player_emails[player_name][0] if player_emails[player_name] else ''
+                        email_cd = player_emails[player_name][1] if len(player_emails[player_name]) > 1 else ''
+                    if new_emails and player_name in new_emails:
+                        email_cb = new_emails[player_name]
+                email_data.append({'range': f'Ratings!CB{row_num}', 'values': [[email_cb]]})
+                email_data.append({'range': f'Ratings!CD{row_num}', 'values': [[email_cd]]})
+                row_num += 1
+
+            # Batch write all email rows
+            if email_data:
+                body = {
+                    'valueInputOption': 'RAW',
+                    'data': email_data
+                }
+                self.sheet.values().batchUpdate(
+                    spreadsheetId=self.SPREADSHEET_ID,
+                    body=body
+                ).execute()
+                print(f'Updated {len(email_data)} player email rows in columns CB and CD')
+
+        except HttpError as err:
+            print(f'Failed to update player emails: {err}')
+
+    def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days,
+                        match_rating_changes: dict = None, new_emails: dict = None):
+        try:
+            # Get existing player emails before updating rankings
+            print('Retrieving player emails from Ratings sheet...')
+            player_emails = self.get_player_emails_from_sheet()
+
             all_player_ratings = []
             league_player_ratings = {}
             ranking = 0
             for k, v in new_ratings.items():
                 if k in self.all_players:
                     try:
-                        rating_diff = f'+{rating_increased[k]}'
+                        rating_diff_num = rating_increased[k]
+                        rating_diff = f'+{rating_diff_num:.2f}'
                     except KeyError:
                         try:
-                            rating_diff = f'{rating_decreased[k]}'
+                            rating_diff_num = rating_decreased[k]
+                            rating_diff = f'{rating_diff_num:.2f}'
                         except KeyError:
-                            rating_diff = '0'
-                    league_player_ratings[k] = [v[0] - float(rating_diff), rating_diff, v[0]]
+                            rating_diff_num = 0
+                            rating_diff = '0.00'
+                    # Format before and after ratings with 2 decimal places
+                    before_rating = v[0] - rating_diff_num
+                    league_player_ratings[k] = [f'{before_rating:.2f}', rating_diff, f'{v[0]:.2f}']
 
                 ranking += 1
                 active_player = True
-                if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > active_days:
+                if (datetime.strptime(self.date_str, '%m-%d-%Y').replace(hour=14) - v[1]).days > active_days:
                     active_player = False
-                all_player_ratings.append([ranking, k, v[0], rating_diff if k in self.all_players else '', active_player])
+                all_player_ratings.append([ranking, k, v[0], ''])
                 print(f'{k}     active:{active_player}')
 
             # Update player ratings in league sheets
@@ -485,9 +696,12 @@ class GoogleSheet():
                 for p in self.players_per_league[l]:
                     if p == '':
                         values.append(['', '', ''])
-                    else:
+                    elif p in league_player_ratings:
                         values.append(league_player_ratings[p])
-                self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.ratings_range[l - 1], valueInputOption='RAW', body={'values': values}).execute()
+                    else:
+                        values.append(['', '', ''])
+                self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.ratings_range[l - 1],
+                                           valueInputOption='RAW', body={'values': values}).execute()
 
             # Write match ELO changes to the sheet (column I for P1 change)
             if match_rating_changes:
@@ -495,7 +709,8 @@ class GoogleSheet():
                     # Get the scores for this league to build the update values
                     league_scores = []
                     try:
-                        result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID, range=self.score_ranges[l - 1]).execute()
+                        result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID,
+                                                         range=self.score_ranges[l - 1]).execute()
                         league_scores = result.get('values', [])
                     except HttpError:
                         pass
@@ -538,8 +753,8 @@ class GoogleSheet():
                                 match_key = (p1_name, p2_name)
                                 if match_key in match_rating_changes:
                                     p1_change, p2_change = match_rating_changes[match_key]
-                                    # Put P1's change in column I (index 1)
-                                    new_row[1] = f'{p1_change:+.2f}'
+                                    # Put P1's change in column I (index 1) - absolute value, 2 decimal places
+                                    new_row[1] = f'{abs(p1_change):.2f}'
 
                                     # Determine winner and add formatting request
                                     if sheet_id is not None:
@@ -550,15 +765,15 @@ class GoogleSheet():
                                                         'sheetId': sheet_id,
                                                         'startRowIndex': start_row + row_idx,
                                                         'endRowIndex': start_row + row_idx + 1,
-                                                        'startColumnIndex': 7,  # Column H (0-indexed)
-                                                        'endColumnIndex': 8
+                                                        'startColumnIndex': 8,  # Column I (0-indexed)
+                                                        'endColumnIndex': 9
                                                     },
                                                     'cell': {
                                                         'userEnteredFormat': {
                                                             'backgroundColor': {
-                                                                'red': 0.714,   # B6D7A8 in RGB (182/255)
-                                                                'green': 0.843, # (215/255)
-                                                                'blue': 0.659   # (168/255)
+                                                                'red': 0.773,  # C5EEC5 in RGB (197/255)
+                                                                'green': 0.933,  # (238/255)
+                                                                'blue': 0.773  # (197/255)
                                                             }
                                                         }
                                                     },
@@ -572,15 +787,15 @@ class GoogleSheet():
                                                         'sheetId': sheet_id,
                                                         'startRowIndex': start_row + row_idx,
                                                         'endRowIndex': start_row + row_idx + 1,
-                                                        'startColumnIndex': 9,  # Column J (0-indexed)
-                                                        'endColumnIndex': 10
+                                                        'startColumnIndex': 10,  # Column K (0-indexed)
+                                                        'endColumnIndex': 11
                                                     },
                                                     'cell': {
                                                         'userEnteredFormat': {
                                                             'backgroundColor': {
-                                                                'red': 0.714,   # B6D7A8 in RGB (182/255)
-                                                                'green': 0.843, # (215/255)
-                                                                'blue': 0.659   # (168/255)
+                                                                'red': 0.773,  # C5EEC5 in RGB (197/255)
+                                                                'green': 0.933,  # (238/255)
+                                                                'blue': 0.773  # (197/255)
                                                             }
                                                         }
                                                     },
@@ -598,20 +813,87 @@ class GoogleSheet():
 
                     if updated_rows:
                         # Update the entire score range with the ELO changes included
-                        self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.score_ranges[l - 1], valueInputOption='RAW', body={'values': updated_rows}).execute()
+                        self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.score_ranges[l - 1],
+                                                   valueInputOption='USER_ENTERED',
+                                                   body={'values': updated_rows}).execute()
 
                         # Apply formatting if we have any requests
                         if format_requests:
-                            self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body={'requests': format_requests}).execute()
+                            self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID,
+                                                   body={'requests': format_requests}).execute()
 
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE).execute()
-            self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE, valueInputOption='RAW', body={'values': [[f'{self.date_str}']]}).execute()
+            self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE,
+                                       valueInputOption='RAW', body={'values': [[f'{self.date_str}']]}).execute()
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_RANGE).execute()
-            self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_RANGE, valueInputOption='RAW', body={'values': all_player_ratings}).execute()
+            self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_RANGE,
+                                       valueInputOption='RAW', body={'values': all_player_ratings}).execute()
+
+            # Restore player emails to columns CB and CD with updated rankings
+            print('Updating player emails in columns CB and CD with new rankings...')
+            all_player_names = [p[1] for p in all_player_ratings]
+            self.update_player_emails_in_sheet(player_emails, all_player_names, new_emails)
+
+            # Write highest point winners for each league
+            print('Calculating and writing highest point winners...')
+            self.write_highest_point_winners(rating_increased, rating_decreased, new_ratings)
+
         except HttpError as err:
             print(f'Failed to update ratings, error: {err}')
             exit(1)
-        return
+
+    def write_highest_point_winners(self, rating_increased: dict, rating_decreased: dict, new_ratings: dict):
+        """Calculate and write the highest point winner for each league to D12, D29, D46"""
+        if self.sheet is None:
+            self.get_sheet()
+
+        try:
+            for l in self.players_per_league:
+                league_idx = l - 1
+                league_players = self.players_per_league[l]
+
+                # Calculate total rating change for each player in the league
+                player_changes = {}
+                for player in league_players:
+                    if player == '':
+                        continue
+
+                    # Get the rating change (positive or negative)
+                    if player in rating_increased:
+                        player_changes[player] = rating_increased[player]
+                    elif player in rating_decreased:
+                        player_changes[player] = rating_decreased[player]
+                    else:
+                        player_changes[player] = 0.0
+
+                if not player_changes:
+                    continue
+
+                # Find the maximum rating change
+                max_change = max(player_changes.values())
+
+                # Find all players with the maximum change (for ties)
+                winners = [player for player, change in player_changes.items() if change == max_change]
+
+                # If there's a tie, sort by rating (highest first)
+                if len(winners) > 1:
+                    winners.sort(key=lambda p: new_ratings[p][0], reverse=True)
+
+                # Format the winner string
+                winner_str = ', '.join(winners)
+
+                # Write to the appropriate cell
+                self.sheet.values().update(
+                    spreadsheetId=self.SPREADSHEET_ID,
+                    range=self.point_winner_ranges[league_idx],
+                    valueInputOption='RAW',
+                    body={'values': [[winner_str]]}
+                ).execute()
+
+                print(f'  League {l} highest point winner: {winner_str} (+{max_change:.2f})')
+
+        except HttpError as err:
+            print(f'Failed to write highest point winners: {err}')
 
     def print_active_status(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days):
         all_player_ratings = []
@@ -630,110 +912,140 @@ class GoogleSheet():
 
             ranking += 1
             active_player = True
-            if (datetime.strptime(self.date_str, '%Y-%m-%d').replace(hour=14) - v[1]).days > active_days:
+            if (datetime.strptime(self.date_str, '%m-%d-%Y').replace(hour=14) - v[1]).days > active_days:
                 active_player = False
             all_player_ratings.append([ranking, k, v[0], active_player])
             print(f'{k}     active:{active_player}')
-        return
-
 
 def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
     rating_changes = {}
     match_rating_changes = {}  # Store individual match rating changes
+
     for row in league_scores:
         if len(row) < 3:
             continue
         p1_name = row[0]
-        # Skip the empty column (row[1]) and get player 2 from row[2]
         p2_name = row[2] if len(row) > 2 else ''
         if p1_name == '' or p2_name == '':
             continue
-        p1_rating = current_ratings[p1_name][0]
-        p2_rating = current_ratings[p2_name][0]
+
+        p1_raw = current_ratings.get(p1_name, 1000.0)
+        p2_raw = current_ratings.get(p2_name, 1000.0)
+
+        if isinstance(p1_raw, list):
+            p1_rating = float(p1_raw[0])
+        elif isinstance(p1_raw, dict):
+            p1_rating = float(p1_raw.get('rating', 1000.0))
+        else:
+            p1_rating = float(p1_raw)
+
+        if isinstance(p2_raw, list):
+            p2_rating = float(p2_raw[0])
+        elif isinstance(p2_raw, dict):
+            p2_rating = float(p2_raw.get('rating', 1000.0))
+        else:
+            p2_rating = float(p2_raw)
+
         p1 = Player(p1_name, p1_rating)
         p2 = Player(p2_name, p2_rating)
+
         score_diffs_p1vp2 = []
         score_diffs_p2vp1 = []
-        for game in range(5): # the match is best of 5
-            # Adjust index to skip the empty column
+
+        for game in range(5):
             idx = game * 2 + 3
             try:
+                if idx + 1 >= len(row):
+                    break
                 score1 = row[idx]
-                score2 = row[idx +1]
-                # Check if scores are valid integers
+                score2 = row[idx + 1]
+
                 if isinstance(score1, int) and isinstance(score2, int):
                     score_diffs_p1vp2.append(score1 - score2)
                     score_diffs_p2vp1.append(score2 - score1)
             except (IndexError, TypeError, ValueError):
-                break
-        if (len(score_diffs_p1vp2) > 0) and (len(score_diffs_p2vp1) > 0):
-            new_p1_rating = p1.add_match_against(p2, score_diffs_p1vp2, print_out)
-            new_p2_rating = p2.add_match_against(p1, score_diffs_p2vp1, print_out)
-            if print_out:
-                print()
+                continue
 
-            # Store individual match rating changes
-            match_key = (p1_name, p2_name)
-            match_rating_changes[match_key] = (new_p1_rating - p1_rating, new_p2_rating - p2_rating)
+        if len(score_diffs_p1vp2) > 0 and len(score_diffs_p2vp1) > 0:
+            try:
+                new_p1_rating = p1.add_match_against(p2, score_diffs_p1vp2, print_out)
+                new_p2_rating = p2.add_match_against(p1, score_diffs_p2vp1, print_out)
 
-            if p1_name not in rating_changes:
-                rating_changes[p1_name] = [new_p1_rating - p1_rating]
-            else:
-                rating_changes[p1_name].append(new_p1_rating - p1_rating)
-            if p2_name not in rating_changes:
-                rating_changes[p2_name] = [new_p2_rating - p2_rating]
-            else:
-                rating_changes[p2_name].append(new_p2_rating - p2_rating)
+                match_key = (p1_name, p2_name)
+                match_rating_changes[match_key] = (new_p1_rating - p1_rating, new_p2_rating - p2_rating)
 
-    new_ratings = copy.deepcopy(current_ratings)
-    if date_str == '':
-        print('No date provided, retaining existing dates')
+                if p1_name not in rating_changes:
+                    rating_changes[p1_name] = [new_p1_rating - p1_rating]
+                else:
+                    rating_changes[p1_name].append(new_p1_rating - p1_rating)
+
+                if p2_name not in rating_changes:
+                    rating_changes[p2_name] = [new_p2_rating - p2_rating]
+                else:
+                    rating_changes[p2_name].append(new_p2_rating - p2_rating)
+            except (TypeError, ValueError, AttributeError):
+                continue
+
+    new_ratings = copy.copy(current_ratings)
     for player in rating_changes:
-        new_ratings[player][0] += sum(rating_changes[player])
-        if date_str != '':
-            new_ratings[player][1] = datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)
+        if player not in new_ratings:
+            new_ratings[player] = 1000.0
+
+        if isinstance(new_ratings[player], list):
+            new_ratings[player] = float(new_ratings[player][0])
+        elif isinstance(new_ratings[player], dict):
+            new_ratings[player] = float(new_ratings[player].get('rating', 1000.0))
         else:
-            new_ratings[player][1] = current_ratings[player][1]
-    new_ratings = dict(sorted(new_ratings.items(), key=lambda item: item[1][0], reverse=True))
+            new_ratings[player] = float(new_ratings[player])
+
+        new_ratings[player] += sum(rating_changes[player])
+
+    new_ratings = dict(
+        sorted(new_ratings.items(), key=lambda item: item[1] if isinstance(item[1], (int, float)) else 1000.0,
+               reverse=True))
 
     return new_ratings, match_rating_changes
-
 
 def get_rating_diffs(current_ratings, new_ratings):
     rating_increased = {}
     rating_decreased = {}
 
     for key in new_ratings:
-        rating_diff = round(new_ratings[key][0] - current_ratings[key][0], 2)
-        if key in current_ratings and (rating_diff > 0):
+        old_raw = current_ratings.get(key, 1000.0)
+
+        if isinstance(old_raw, list):
+            old_rating = float(old_raw[0])
+        elif isinstance(old_raw, dict):
+            old_rating = float(old_raw.get('rating', 1000.0))
+        else:
+            old_rating = float(old_raw)
+
+        new_raw = new_ratings[key]
+        if isinstance(new_raw, list):
+            new_rating = float(new_raw[0])
+        elif isinstance(new_raw, dict):
+            new_rating = float(new_raw.get('rating', 1000.0))
+        else:
+            new_rating = float(new_raw)
+
+        rating_diff = round(new_rating - old_rating, 2)
+
+        if rating_diff > 0:
             rating_increased[key] = rating_diff
-        elif key in current_ratings and (rating_diff < 0):
+        elif rating_diff < 0:
             rating_decreased[key] = rating_diff
 
     return rating_increased, rating_decreased
 
-
-def new_league(date_str, cert_file, google_cred, active_days, execute, print_out):
-    print('Connecting to google sheets...')
+def new_league(date_str, google_cred, active_days, execute, print_out):
     google_sheet = GoogleSheet(date_str, google_cred)
-
-    print('Connecting to MongoDB...')
-    mongodb = MongoDB(date_str, cert_file)
-
+    mongodb = MongoDB(date_str)
     league_scores = google_sheet.get_scores()
-    if not league_scores:
-        print(f'No scores found for {date_str}.')
-        return
     league_players = google_sheet.get_league_players()
 
-    last_update = mongodb.get_last_update_date()
-    if last_update >= datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14):
-        print(f'Leagues on "{date_str}" has already been processed before.')
-        return
     current_ratings = mongodb.get_current_ratings()
     missing_players = league_players - current_ratings.keys()
 
-    print()
     league_avg_ratings = {}
     for i in range(len(google_sheet.players_per_league)):
         league = i + 1
@@ -743,30 +1055,26 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
         print(f'League {league}:')
         total_ratings = 0.0
         player_count = 0
+
         for p in google_sheet.players_per_league[league]:
             try:
-                total_ratings += current_ratings[p][0]
+                raw_val = current_ratings.get(p, 1000.0)
+                if isinstance(raw_val, list):
+                    total_ratings += float(raw_val)
+                elif isinstance(raw_val, dict):
+                    total_ratings += float(raw_val.get('rating', 1000.0))
+                else:
+                    total_ratings += float(raw_val)
                 player_count += 1
             except KeyError:
                 pass
             print(f'  {p}')
+
         if player_count > 0:
             league_avg_ratings[league] = total_ratings / player_count
         else:
             league_avg_ratings[league] = 0
         print()
-
-    while True:
-        print('Please make sure the players listed above are correct for each league. [y/N] ', end='')
-        player_check = input()
-        try:
-            if player_check.strip().lower() == 'y':
-                break
-            else:
-                print('\nPlease check the date of the league matches, then try running the script again.')
-                return
-        except KeyboardInterrupt:
-            return
 
     new_emails = {}
     for p in missing_players:
@@ -775,10 +1083,12 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
                 for i in range(len(google_sheet.players_per_league)):
                     league = i + 1
                     if p in google_sheet.players_per_league[league]:
-                        print(f'Missing rating for "{p}", average ratings for league {league} is {round(league_avg_ratings[league], 2)}. Please enter initial rating: ', end='')
+                        print(
+                            f'Missing rating for "{p}", average ratings for league {league} is {round(league_avg_ratings[league], 2)}. Please enter initial rating: ',
+                            end='')
                         break
                 try:
-                    current_ratings[p] = [float(input()), datetime.strptime(date_str, '%Y-%m-%d').replace(hour=14)]
+                    current_ratings[p] = float(input())
                     break
                 except ValueError:
                     print('Rating must be a number, please try again.')
@@ -808,11 +1118,20 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
             print(f'League {league}:')
             for p in google_sheet.players_per_league[league]:
                 if p != '':
-                    print(f'  {p: >20}: {round(current_ratings[p][0], 2): >7.02f}   =>   {round(new_ratings[p][0] - current_ratings[p][0], 2): >+7.02f}   =>   {round(new_ratings[p][0], 2): >7.02f}')
+                    old_val = current_ratings.get(p, 1000.0)
+                    if isinstance(old_val, list):
+                        old_r = float(old_val)
+                    elif isinstance(old_val, dict):
+                        old_r = float(old_val.get('rating', 1000.0))
+                    else:
+                        old_r = float(old_val)
+
+                    new_val = new_ratings.get(p, 1000.0)
+                    new_r = float(new_val) if isinstance(new_val, list) else float(new_val)
+
+                    print(f'  {p: >20}: {round(old_r, 2): >7.02f}   =>   {round(new_r - old_r, 2): >+7.02f}   =>   {round(new_r, 2): >7.02f}')
             print()
 
-    # Just in case things go wrong, we backup the database locally.
-    # The backup file can be used to import to mongodb using command "mongoimport".
     if execute:
         while True:
             print('Update database and spreadsheet? [y/N] ', end='')
@@ -826,40 +1145,124 @@ def new_league(date_str, cert_file, google_cred, active_days, execute, print_out
             except KeyboardInterrupt:
                 return
         print('Updating database and spreadsheet...')
-        mongodb.backup()
-        mongodb.set_new_ratings(new_ratings, new_emails)
-        google_sheet.set_new_ratings(new_ratings, rating_increased, rating_decreased, active_days, match_rating_changes)
+        date_obj = datetime.strptime(date_str, '%m-%d-%Y')
+        wrapped_new_ratings = {k: [v, date_obj] for k, v in new_ratings.items()}
+        mongodb.set_new_ratings(wrapped_new_ratings, new_emails)
+        google_sheet.set_new_ratings(wrapped_new_ratings, rating_increased, rating_decreased, active_days, match_rating_changes, new_emails)
         print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
 
-    return
-
-
-def update_database_from_sheet(date_str, cert_file, google_cred, active_days, execute, print_out):
+def update_database_from_sheet(date_str, google_cred, active_days, execute, print_out):
     print('Connecting to google sheets...')
     google_sheet = GoogleSheet(date_str, google_cred)
 
     print('Connecting to MongoDB...')
-    mongodb = MongoDB(date_str, cert_file)
+    mongodb = MongoDB(date_str)
 
-    league_scores = google_sheet.get_all_ratings()
+    print('Reading ratings from sheet...')
+    league_scores = google_sheet.get_all_ratings(allow_missing_dates=True)
+    print(f'Successfully read {len(league_scores)} player ratings from sheet')
+
+    print('Reading emails from sheet...')
+    player_emails = google_sheet.get_player_emails_from_sheet()
+
     current_ratings = mongodb.get_current_ratings()
 
-    for player in current_ratings:
-        if player in league_scores:
-            league_scores[player][1] = current_ratings[player][1]
+    # Build a dict of player -> last_played date from the database
+    all_db_players_cursor = mongodb.get_all_players()
+    all_db_players_cursor.rewind()
+    player_dates = {}
+    for p in all_db_players_cursor:
+        if 'rating_history' in p and len(p['rating_history']) > 0:
+            last_entry = p['rating_history'][-1]
+            if isinstance(last_entry, dict):
+                player_dates[p['name']] = last_entry.get('date', datetime.min)
+            elif isinstance(last_entry, list):
+                player_dates[p['name']] = last_entry[1] if len(last_entry) > 1 else datetime.min
+            else:
+                player_dates[p['name']] = datetime.min
+        else:
+            player_dates[p['name']] = datetime.min
 
-    print('Calculating new ratings...')
-    rating_increased, rating_decreased = get_rating_diffs(current_ratings, league_scores)
+    # Get all database players sorted by current rating to create a mapping
+    all_db_players = list(mongodb.collection.aggregate([
+        {'$addFields': {
+            'last_rating': {'$last': '$rating_history.rating'}
+        }},
+        {'$sort': {'last_rating': DESCENDING}}
+    ]))
+
+    # Create a list of sheet players in order (already sorted by rating)
+    sheet_players_in_order = list(league_scores.items())
+
+    # Build a mapping from new names to old names (for players whose names changed)
+    name_mapping = {}  # new_name -> old_name
+
+    for sheet_idx, (sheet_name, v) in enumerate(sheet_players_in_order):
+        r = float(v[0])
+
+        # First try to find by exact name match
+        player_db = mongodb.collection.find_one({'name': sheet_name})
+
+        # If no exact match, try to find by position/index (matching by rank)
+        if player_db is None and sheet_idx < len(all_db_players):
+            potential_match = all_db_players[sheet_idx]
+
+            # Extract actual current rating from rating_history
+            hist = potential_match.get('rating_history', [])
+            if hist:
+                last = hist[-1]
+                match_rating = float(last['rating']) if isinstance(last, dict) else float(last[0])
+            else:
+                match_rating = 1000.0
+            if abs(match_rating - r) < 50:
+                old_name = potential_match['name']
+                name_mapping[sheet_name] = old_name
+                print(f'Name mapping: "{old_name}" -> "{sheet_name}"')
+
+    # Use existing dates from database for all players (preserving last played date)
+    for sheet_player in league_scores:
+        # Check if this is a renamed player
+        db_player_name = name_mapping.get(sheet_player, sheet_player)
+
+        if db_player_name in player_dates:
+            league_scores[sheet_player][1] = player_dates[db_player_name]
+        else:
+            # New player without existing date - use a default
+            league_scores[sheet_player][1] = datetime.strptime(date_str, '%m-%d-%Y').replace(hour=14)
+
+    # For get_rating_diffs, we need to map the sheet names back to DB names temporarily
+    current_ratings_adjusted = {}
+    for sheet_name, rating_info in league_scores.items():
+        db_name = name_mapping.get(sheet_name, sheet_name)
+        if db_name in current_ratings:
+            current_ratings_adjusted[sheet_name] = current_ratings[db_name]
+        else:
+            # New player - use the sheet rating as "current"
+            current_ratings_adjusted[sheet_name] = rating_info
+
+    print('Calculating rating changes...')
+    rating_increased, rating_decreased = get_rating_diffs(current_ratings_adjusted, league_scores)
 
     if print_out:
-        for i in current_ratings:
-            if i in league_scores:
-                print(f'{i}')
+        for sheet_name in league_scores:
+            if sheet_name in current_ratings_adjusted:
+                old_val = current_ratings_adjusted[sheet_name]
+                if isinstance(old_val, list):
+                    old_r = float(old_val[0])
+                elif isinstance(old_val, dict):
+                    old_r = float(old_val.get('rating', 1000.0))
+                else:
+                    old_r = float(old_val)
+                new_val = league_scores[sheet_name][0]
+                print(f'{sheet_name}')
                 print(
-                    f'  {round(current_ratings[i][0], 2): >7.02f}   =>   {round(league_scores[i][0] - current_ratings[i][0], 2): >+7.02f}   =>   {round(league_scores[i][0], 2): >7.02f}')
+                    f'  {round(old_r, 2): >7.02f}   =>   {round(new_val - old_r, 2): >+7.02f}   =>   {round(new_val, 2): >7.02f}')
                 print()
+
+    # Show which emails will be updated
+    print(f'\nFound {len(player_emails)} player emails to update')
 
     google_sheet.print_active_status(league_scores, rating_increased, rating_decreased, active_days)
     if execute:
@@ -875,18 +1278,51 @@ def update_database_from_sheet(date_str, cert_file, google_cred, active_days, ex
             except KeyboardInterrupt:
                 return
         print('Updating database and spreadsheet...')
-        mongodb.backup()
-        mongodb.update_ratings_from_sheet(league_scores, {})
+        # Update ratings for players with complete data
+        mongodb.update_ratings_from_sheet(league_scores, player_emails)
+        # Update emails for all other players in the database
+        mongodb.update_emails_only(player_emails)
+
+        # Re-sort the sheet by rating (highest first)
+        print('Re-sorting player ratings on the sheet...')
+        sorted_players = sorted(league_scores.items(), key=lambda x: x[1][0], reverse=True)
+        all_player_ratings = [[i + 1, name, rating, ''] for i, (name, (rating, _)) in enumerate(sorted_players)]
+
+        google_sheet.get_sheet()
+        google_sheet.sheet.values().clear(
+            spreadsheetId=google_sheet.SPREADSHEET_ID,
+            range=google_sheet.RATINGS_RANGE
+        ).execute()
+        google_sheet.sheet.values().update(
+            spreadsheetId=google_sheet.SPREADSHEET_ID,
+            range=google_sheet.RATINGS_RANGE,
+            valueInputOption='RAW',
+            body={'values': all_player_ratings}
+        ).execute()
+
+        # Update the date header
+        google_sheet.sheet.values().clear(
+            spreadsheetId=google_sheet.SPREADSHEET_ID,
+            range=google_sheet.RATINGS_HEADERS_RANGE
+        ).execute()
+        google_sheet.sheet.values().update(
+            spreadsheetId=google_sheet.SPREADSHEET_ID,
+            range=google_sheet.RATINGS_HEADERS_RANGE,
+            valueInputOption='RAW',
+            body={'values': [[f'{date_str}']]}
+        ).execute()
+
+        # Restore player emails with new rankings
+        all_player_names = [name for name, _ in sorted_players]
+        google_sheet.update_player_emails_in_sheet(player_emails, all_player_names, new_emails=None)
         print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
-    return
 
-
-def show_ratings(cert_file, player_list: list, current, active_days):
+def show_ratings(player_list: list, current, active_days):
     print('Connecting to MongoDB...')
-    date_str = datetime.now().strftime('%Y-%m-%d')
-    mongodb = MongoDB(date_str, cert_file)
+    date_str = datetime.now().strftime('%m-%d-%Y')
+    mongodb = MongoDB(date_str)
     player_list = mongodb.get_ratings_history(player_list)
     if current:
         print('   Name        Rating   Active')
@@ -895,14 +1331,19 @@ def show_ratings(cert_file, player_list: list, current, active_days):
     for k, v in player_list.items():
         if current:
             active_player = True
-            if (datetime.now() - v[-1][1]).days > active_days:
+            last_entry = v[-1]
+            last_rating = float(last_entry['rating']) if isinstance(last_entry, dict) else float(last_entry[0])
+            last_date = last_entry['date'] if isinstance(last_entry, dict) else last_entry[1]
+            if (datetime.now() - last_date).days > active_days:
                 active_player = False
-            ratings = f'{round(v[-1][0], 2): >7.02f}   {active_player}'
+            ratings = f'{round(last_rating, 2): >7.02f}   {active_player}'
         else:
-            ratings = ', '.join([str(round(d[0], 2)) for d in v[::-1]])
+            ratings = ', '.join([
+                str(round(float(d['rating'] if isinstance(d, dict) else d[0]), 2))
+                for d in v[::-1]
+            ])
         player_info = f'  {k: <12} {ratings}'
         print(player_info)
-    return
 
 def main():
     parser = argparse.ArgumentParser()
@@ -931,7 +1372,7 @@ def main():
         '-d', '--date',
         dest='date',
         type=str,
-        help='The date of the league games, must be in the format of yyyy-mm-dd.'
+        help='The date of the league games, must be in the format of mm-dd-YYYY.'
     )
     parser.add_argument(
         '-n', '--new-league',
@@ -974,7 +1415,6 @@ def main():
         default=False,
         help='Update the server from Google Doc ratings sheet'
     )
-    #TODO: remove a league
     parser.add_argument(
         '-r', '--remove-league',
         dest='remove_league',
@@ -984,45 +1424,36 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.date:
+        try:
+            datetime.strptime(args.date, '%m-%d-%Y')
+        except ValueError:
+            print('Date must be in the format of mm-dd-YYYY.')
+            exit(1)
+
     if args.new_league:
         if args.date is None:
             print('Must provide a date to process new league matches.')
             exit(1)
-        try:
-            league_date = datetime.strptime(args.date, '%Y-%m-%d')
-        except ValueError:
-            print('Date must be in the format of yyyy-mm-dd.')
-            exit(1)
-        new_league(args.date, args.mongodb_cert, args.google_cred, args.active_days, args.execute, args.print_out)
+        new_league(args.date, args.google_cred, args.active_days, args.execute, args.print_out)
     elif args.update_server:
         if args.date is None:
             print('Must provide a date to process new league matches.')
             exit(1)
-        try:
-            league_date = datetime.strptime(args.date, '%Y-%m-%d')
-        except ValueError:
-            print('Date must be in the format of yyyy-mm-dd.')
-            exit(1)
-        update_database_from_sheet(args.date, args.mongodb_cert, args.google_cred, args.active_days,
+        update_database_from_sheet(args.date, args.google_cred, args.active_days,
                                    args.execute, args.print_out)
     elif args.remove_league:
         if args.date is None:
             print('Must provide a date to remove league matches.')
             exit(1)
-        try:
-            league_date = datetime.strptime(args.date, '%Y-%m-%d')
-        except ValueError:
-            print('Date must be in the format of yyyy-mm-dd.')
-            exit(1)
-        mongodb = MongoDB(args.date, args.mongodb_cert)
+        mongodb = MongoDB(args.date)
         mongodb.remove_league()
     elif args.show_ratings is not None:
         player_list = args.show_ratings.split(',')
         player_list = list(map(str.strip, player_list))
-        show_ratings(args.mongodb_cert, player_list, args.current, args.active_days)
+        show_ratings(player_list, args.current, args.active_days)
 
     exit(0)
-
 
 if __name__ == '__main__':
     main()

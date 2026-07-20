@@ -1,1 +1,0 @@
--m C:\Users\jddav\PycharmProjects\tt-ratings\ccttc_ratings.pem -g C:\Users\jddav\PycharmProjects\tt-ratings\ccttc_ratings.json -c -p -d 2025-09-25 -n
