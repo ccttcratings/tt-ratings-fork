@@ -209,35 +209,35 @@ function onFormSubmit(e) {
   const fullRowRange = sheet.getRange(submittedRow, 1, 1, lastColumn);
   fullRowRange.setFontSize(11).setFontWeight("bold").setFontColor("#000000");
   const colorToApply = ((submittedRow - 1) % 2 === 0) ? colorGray : colorWhite;
-  const mainContentRange = sheet.getRange(submittedRow, 2, 1, 7);
+  const mainContentRange = sheet.getRange(submittedRow, 2, 1, 5);
   mainContentRange.setBackground(colorToApply);
   const topBorderStyle = submittedRow === 4 ? borderThickSolid : borderThinSolid;
   const cellA = sheet.getRange(submittedRow, 1);
   cellA.setBackground("#c6c0ab");
   cellA.setBorder(null, true, null, true, false, false, "#000000", borderThickSolid);
-  const cellI = sheet.getRange(submittedRow, 9);
-  cellI.setBackground("#c6c0ab");
-  cellI.setBorder(null, true, null, true, false, false, "#000000", borderThickSolid);
+  const cellG = sheet.getRange(submittedRow, 7);
+  cellG.setBackground("#c6c0ab");
+  cellG.setBorder(null, true, null, true, false, false, "#000000", borderThickSolid);
   mainContentRange.setBorder(true, null, null, null, null, null, null, topBorderStyle);
   const cellC = sheet.getRange(submittedRow, 3);
+  const cellD = sheet.getRange(submittedRow, 4);
   const cellE = sheet.getRange(submittedRow, 5);
-  const cellG = sheet.getRange(submittedRow, 7);
   cellC.setBorder(null, true, null, true, null, null, null, borderThinSolid);
+  cellD.setBorder(null, null, null, true, null, null, null, borderThinSolid);
   cellE.setBorder(null, null, null, true, null, null, null, borderThinSolid);
-  cellG.setBorder(null, null, null, true, null, null, null, borderThinSolid);
-  const centerRangeList = sheet.getRangeList([`B${submittedRow}:C${submittedRow}`, `H${submittedRow}`]);
+  const centerRangeList = sheet.getRangeList([`B${submittedRow}:C${submittedRow}`, `F${submittedRow}`]);
   centerRangeList.setHorizontalAlignment("center").setVerticalAlignment('middle');
-  const leftRangeList = sheet.getRangeList([`D${submittedRow}:G${submittedRow}`]);
+  const leftRangeList = sheet.getRangeList([`D${submittedRow}:E${submittedRow}`]);
   leftRangeList.setHorizontalAlignment("left").setVerticalAlignment('middle');
   sheet.setRowHeight(submittedRow, 30);
-  sheet.getRange('E3').setValue('Email Addresses');
-  sheet.getRange('G3').setValue('Names');
-  sheet.getRange('H3').setValue('Are youse playing?');
-  sheet.getRange('3:4').setFontSize(15).setFontWeight('bold');
-  sheet.getRange('B3:H3').setBorder(null, null, true, null, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THICK).setFontWeight('bold');
+  sheet.getRange('D3').setValue('Email Addresses');
+  sheet.getRange('E3').setValue('Names');
+  sheet.getRange('F3').setValue('Are youse playing?');
+  sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
+  sheet.getRange('B3:F3').setBorder(null, null, true, null, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THICK).setFontWeight('bold');
   sheet.getRange('C3').setValue('Timestamps').setBorder(null, true, null, true, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
-  sheet.getRange('E3').setBorder(null, null, null, true, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
-  sheet.getRange('H3').setBorder(null, true, null, null, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
+  sheet.getRange('D3').setBorder(null, null, null, true, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
+  sheet.getRange('F3').setBorder(null, true, null, null, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
 }
 
 function onOpen() {
@@ -247,9 +247,9 @@ function onOpen() {
   var name = sheet.getName();
   if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, \d{4}$/.test(name)) {
     sheet.getRange('C3').setValue('Timestamps');
-    sheet.getRange('E3').setValue('Email Addresses');
-    sheet.getRange('G3').setValue('Names');
-    sheet.getRange('H3').setValue('Are youse playing?');
-    sheet.getRange('3:4').setFontSize(15).setFontWeight('bold');
+    sheet.getRange('D3').setValue('Email Addresses');
+    sheet.getRange('E3').setValue('Names');
+    sheet.getRange('F3').setValue('Are youse playing?');
+    sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
   }
 }

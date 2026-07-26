@@ -34,7 +34,7 @@ function newLeagueDate() {
 
   // Calculate next Saturday
   var skip_days = 6 - now.getDay();
-  skip_days = skip_days < 1 ? skip_days + 6 : skip_days;
+  skip_days = skip_days < 1 ? 7 : skip_days;
   var next_sat = new Date(now.getTime());
   next_sat.setDate(now.getDate() + skip_days);
 
@@ -63,67 +63,88 @@ function newLeagueDate() {
   sheet = ss.getSheets()[0];
   sheet.setName(new_date_str);
 
-    // Remove table/banding created by setDestination (blocks ARRAYFORMULA)
-    var bandings = sheet.getBandings();
-    for (var b = 0; b < bandings.length; b++) { bandings[b].remove(); }
-
     sheet.setFrozenRows(0);
 
     sheet.insertRowsBefore(1, 2);
     sheet.insertColumnsBefore(1, 2);
-    sheet.insertColumnsBefore(4, 1);
-    sheet.insertColumnsBefore(6, 1);
     var rowsToDelete = sheet.getMaxRows() - 5;
     if (rowsToDelete > 0) { sheet.deleteRows(6, rowsToDelete); }
-    var colsToDelete = sheet.getMaxColumns() - 9;
-    if (colsToDelete > 0) { sheet.deleteColumns(10, colsToDelete); }
+    var colsToDelete = sheet.getMaxColumns() - 7;
+    if (colsToDelete > 0) { sheet.deleteColumns(8, colsToDelete); }
     sheet.setColumnWidth(1, 60);
     sheet.setColumnWidth(2, 31);
     sheet.setColumnWidth(3, 160);
-    sheet.setColumnWidth(4, 8);
-    sheet.setColumnWidth(5, 252);
-    sheet.setColumnWidth(6, 8);
-    sheet.setColumnWidth(7, 175);
-    sheet.setColumnWidth(8, 190);
-    sheet.setColumnWidth(9, 60);
+    sheet.setColumnWidth(4, 250);
+    sheet.setColumnWidth(5, 175);
+    sheet.setColumnWidth(6, 190);
+    sheet.setColumnWidth(7, 60);
     sheet.setRowHeight(1, 60);
     sheet.setRowHeight(2, 90);
     sheet.setRowHeight(3, 31);
     sheet.setRowHeight(4, 31);
     sheet.setRowHeight(5, 60);
-    sheet.getRange('B2:H2').mergeAcross();
-    sheet.getRange('D4:G4').mergeAcross();
-    sheet.getRange(3, 1, sheet.getMaxRows() - 2, 9).setVerticalAlignment('middle').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+    sheet.getRange('B2:F2').mergeAcross();
+    sheet.getRange('D4:E4').mergeAcross();
+    sheet.getRange(3, 1, sheet.getMaxRows() - 2, 7).setVerticalAlignment('middle').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+    sheet.getRange('D:D').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
     sheet.getRange('E:E').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-    sheet.getRange('G:G').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+
+    // Restrict table to content columns (C3:F3) so ARRAYFORMULA in B3 isn't in the header
+    var tableBand = sheet.getRange('A3:F3').getBandings()[0];
+    if (tableBand) {
+        tableBand.setRange(sheet.getRange('C3:F3'));
+        tableBand.setHeaderRowColor('#d9d2e9')
+            .setFirstRowColor('#ffffff')
+            .setSecondRowColor('#f8f9fa')
+            .setFooterRowColor(null);
+    }
+    sheet.getRange('A3').clear({contentsOnly: true});
+
     sheet.getRange('B3').setFormula('=ARRAYFORMULA(If(ROW(B3:B)=1, "Number", (ROW(B3:B)-3)&"."))');
-    sheet.getRange('H4').setFormula('="Total Players = "& COUNTIF (H:H, "Yes")').setBorder(null, true, null, null, null, null, '#000000',   SpreadsheetApp.BorderStyle.SOLID_THIN);
-    sheet.getRange('B2:H2').setBorder(null, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
-    sheet.getRange('B4:H4').setBorder(true, null, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
-    sheet.getRange('C3').setValue('Timestamps').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID).setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange('F4').setFormula('="Total Players = "& COUNTIF (F:F, "Yes")').setBorder(null, true, null, null, null, null, '#000000',   SpreadsheetApp.BorderStyle.SOLID_THIN);
+    sheet.getRange('B2:F2').setBorder(null, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    sheet.getRange('B4:F4').setBorder(true, null, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    sheet.getRange('C3').setValue('Timestamps').setFontWeight('bold').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID).setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
     sheet.getRange('C4').setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN);
-    sheet.getRange('E3').setValue('Email Addresses').setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
-    sheet.getRange('G3').setValue('Names');
-    sheet.getRange('H3').setValue('Are youse playing?').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange('D3').setValue('Email Addresses').setFontWeight('bold').setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange('E3').setValue('Names');
+    sheet.getRange('F3').setValue('Are youse playing?').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
     sheet.getRange('3:4').setFontSize(15).setFontWeight('bold');
-    sheet.getRange('D4:G4').setValue('Total Player Limit = 15').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN).setHorizontalAlignment('center');
-    sheet.getRange('A1:I1').setBackground('#c6c0ab');
+    sheet.getRange('D4:E4').setValue('Total Player Limit = 15').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN).setHorizontalAlignment('center');
+    sheet.getRange('A1:G1').setBackground('#c6c0ab');
     sheet.getRange('A2:A4').setBackground('#c6c0ab');
-    sheet.getRange('B2:H2').setBackground('#fce5cd');
+    sheet.getRange('B2:F2').setBackground('#fce5cd');
     sheet.getRange('B3').setBackground('#d9d2e9').setFontColor('#d9d2e9');
-    sheet.getRange('B4:H4').setBackground('#c9daf8');
+    sheet.getRange('B4:F4').setBackground('#c9daf8');
     sheet.getRange('B4').setFontColor('#c9daf8').setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN);
-    sheet.getRange('C3:H3').setBackground('#d9d2e9').setFontColor('#000000');
-    sheet.getRange('A5:I5').setBackground('#c6c0ab');
-    sheet.getRange('I2:I4').setBackground('#c6c0ab');
+    sheet.getRange('C3:F3').setBackground('#d9d2e9').setFontColor('#000000');
+    sheet.getRange('A5:G5').setBackground('#c6c0ab');
+    sheet.getRange('G2:G4').setBackground('#c6c0ab');
     sheet.getRange('B5').setFontColor('#c6c0ab');
-    sheet.getRange('A1:I5').setBorder(true, true, true, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
-    sheet.getRange('B2:H4').setBorder(true, true, true, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    sheet.getRange('A1:G5').setBorder(true, true, true, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    sheet.getRange('B2:F4').setBorder(true, true, true, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
     sheet.setHiddenGridlines(true);
     sheet.getRange('C3:C5').setHorizontalAlignment('center');
-    sheet.getRange('H3:H5').setHorizontalAlignment('center');
+    sheet.getRange('F3:F5').setHorizontalAlignment('center');
     sheet.getRange('B2').setFormula('=IMAGE("https://drive.google.com/uc?export=download&id=12SCNh6cC0Alypz2eeuXoQjd9Mb8WjZVZ")');
     sheet.getRange('C4').setRichTextValue(SpreadsheetApp.newRichTextValue().setText('League Results').setLinkUrl('https://docs.google.com/spreadsheets/d/1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg/edit?gid=1967667427#gid=1967667427').build()).setFontColor('#000000').setFontLine('none');
+    SpreadsheetApp.flush();
+
+    // Fix headers on the previous response sheet (form push reverts C3/D3)
+    var allSheets = ss.getSheets();
+    var dateRegex = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, \d{4}$/;
+    for (var i = 0; i < allSheets.length; i++) {
+        var s = allSheets[i];
+        if (s.getSheetId() !== sheet.getSheetId() && dateRegex.test(s.getName())) {
+            s.getRange('C3').setValue('Timestamps');
+            s.getRange('D3').setValue('Email Addresses');
+            s.getRange('E3').setValue('Names');
+            s.getRange('F3').setValue('Are youse playing?');
+            s.getRange('3:3').setFontSize(15).setFontWeight('bold');
+            break;
+        }
+    }
+    SpreadsheetApp.flush();
 }
 
 function limitYesResponses() {

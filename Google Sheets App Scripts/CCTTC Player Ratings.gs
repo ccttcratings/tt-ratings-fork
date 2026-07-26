@@ -259,7 +259,7 @@ function findWinners() {
   var score_list = sheet.getRangeList(["I3:U17", "I20:U34", "I37:U51"]).getRanges();
   for (var i = 0; i < 3; ++i) {
     var base_index = i * 17 + 3;
-    sheet.getRange(base_index, 7, 15, 2).setBackground("#efefef");
+    sheet.getRange(base_index, 7, 15, 2).setBackground("#d9d9d9");
 
     var league_scores = score_list[i].getValues();
     for (var j = 0; j < 15; ++j) {
