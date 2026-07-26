@@ -10,4 +10,7 @@ players.json
 pythonconfiguration.txt
 July 2026
 __pycache__/
+*.bat
+*.code-workspace
+ccttc_ratings.json
 
