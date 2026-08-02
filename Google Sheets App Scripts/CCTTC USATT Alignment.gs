@@ -105,8 +105,9 @@ function alignToUSATT() {
     sheet.getRange('D' + rows[i].row).setValue(todayStr);
   }
 
+  var applied = -offset;
   var summary = 'Applied USATT alignment offset of ' + round2(offset) +
-    ' (' + (offset < 0 ? '' : '+') + round2(-offset) + ' to every rating). ' +
+    ' (' + (applied < 0 ? '' : '+') + round2(applied) + ' to every rating). ' +
     'Based on ' + validCount + ' valid official rating(s): ' + validNames.join(', ');
   Logger.log(summary);
   appendLog(ss, new Date(), round2(offset), 'APPLIED', summary);
