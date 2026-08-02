@@ -132,7 +132,10 @@ function updateRatingsFromSheet() {
   for (var name in allNames) {
     var base = currentRatings[name] !== undefined ? currentRatings[name] : null;
     if (base === null) continue; // unrated player: skip until admin assigns a rating
-    newRatings[name] = base + (changes[name] || 0);
+    // Ratings live on the USATT quarter-point scale. ELO changes are already
+    // 0.25 multiples, so this is normally a no-op; it only snaps ratings that
+    // were hand-entered off-grid (e.g. 1000.10 -> 1000.00).
+    newRatings[name] = roundQuarter(base + (changes[name] || 0));
   }
 
   // Sort descending by rating.
@@ -208,6 +211,11 @@ function updateRatingsFromSheet() {
 
 function round2(v) {
   return Math.round(v * 100) / 100;
+}
+
+function roundQuarter(v) {
+  // Snap to the USATT quarter-point scale (x.00/.25/.50/.75).
+  return Math.round(v * 4) / 4;
 }
 
 function padDiff(diff) {
