@@ -186,9 +186,10 @@ function updateRatingsFromSheet() {
       var numLen = txt.replace(/\.+$/, '').length;
       if (numLen >= txt.length) continue; // no trailing dots to color
       var absRow = LEAGUE_START_ROWS[l] + diffCells[k].row;
+      var dotStyle = SpreadsheetApp.newTextStyle().setForegroundColor('#c9daf8').build();
       var rich = SpreadsheetApp.newRichTextValue()
         .setText(txt)
-        .setForegroundColor(numLen, txt.length, '#c9daf8')
+        .setTextStyle(numLen, txt.length, dotStyle)
         .build();
       sheet.getRange('E' + absRow).setRichTextValue(rich);
     }
