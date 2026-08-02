@@ -178,18 +178,23 @@ function updateRatingsFromSheet() {
       var dRange = sheet.getRange(LEAGUE_RATING_RANGES[l]);
       dRange.setNumberFormat('@');
       dRange.setValues(leagueRows);
+      // Right-justify D/E/F so decimal points align even when ratings fall
+      // below 1000 (900.00 is 6 chars vs 1000.00 is 7 chars).
+      dRange.setHorizontalAlignment('right');
     }
-    // Color the trailing '.' padding in column E blue (#c9daf8, the E-column
-    // background) so it is invisible but keeps real width on all platforms.
+    // Color the leading '.' padding in column E blue (#c9daf8, the E-column
+    // background) so it is invisible but holds the width that right-justifies
+    // the visible diff number into alignment with columns D and F.
     for (var k = 0; k < diffCells.length; k++) {
       var txt = diffCells[k].text;
-      var numLen = txt.replace(/\.+$/, '').length;
-      if (numLen >= txt.length) continue; // no trailing dots to color
+      var numStart = 0;
+      while (numStart < txt.length && txt.charAt(numStart) === '.') numStart++;
+      if (numStart === 0) continue; // no leading dots to color
       var absRow = LEAGUE_START_ROWS[l] + diffCells[k].row;
       var dotStyle = SpreadsheetApp.newTextStyle().setForegroundColor('#c9daf8').build();
       var rich = SpreadsheetApp.newRichTextValue()
         .setText(txt)
-        .setTextStyle(numLen, txt.length, dotStyle)
+        .setTextStyle(0, numStart, dotStyle)
         .build();
       sheet.getRange('E' + absRow).setRichTextValue(rich);
     }
@@ -240,10 +245,11 @@ function roundQuarter(v) {
 }
 
 function padDiff(diff) {
-  // Mirrors the Python period-padding so the diff column keeps real width.
+  // Leading invisible '.' padding so the diff is right-justified into the same
+  // width as D/F (which are right-aligned too, for 3- and 4-digit ratings).
   // Python: '+X.XX' for increase, '-X.XX' for decrease, '0.00' for no change.
   var sign = diff > 0 ? '+' : '';
   var body = sign + round2(diff).toFixed(2);
   var padLen = Math.max(7 - body.length, 0);
-  return body + new Array(padLen + 1).join('.');
+  return new Array(padLen + 1).join('.') + body;
 }

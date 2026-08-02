@@ -707,12 +707,13 @@ class GoogleSheet():
                         except KeyError:
                             rating_diff_num = 0
                             rating_diff = '0.00'
-                    # Pad rating_diff with '.' characters colored to match the E-column background
-                    # (#c9daf8) so they are invisible but occupy real width on every platform
-                    # (trailing spaces get trimmed on Android). Leading apostrophe forces text;
-                    # USER_ENTERED strips the apostrophe from the stored value.
+                    # Pad rating_diff with LEADING '.' characters colored to match the
+                    # E-column background (#c9daf8) so they are invisible but occupy real
+                    # width. The leading padding right-justifies the visible diff number
+                    # so its decimal point lines up with the right-justified D and F
+                    # columns (ratings now go below 1000, so centering no longer aligns).
                     pad_len = max(7 - len(rating_diff), 0)
-                    padded_diff = "'" + rating_diff + '.' * pad_len
+                    padded_diff = "'" + '.' * pad_len + rating_diff
                     before_rating = v[0] - rating_diff_num
                     league_player_ratings[k] = [f'{before_rating:.2f}', padded_diff, f'{v[0]:.2f}']
 
@@ -756,27 +757,33 @@ class GoogleSheet():
                 for row in values:
                     if not row[1]:
                         rows_data.append({'values': [
-                            {'userEnteredValue': {'stringValue': row[0]}},
+                            {'userEnteredValue': {'stringValue': row[0]},
+                             'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
                             {'userEnteredValue': {'stringValue': ''}, 'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'}}},
-                            {'userEnteredValue': {'stringValue': row[2]}},
+                            {'userEnteredValue': {'stringValue': row[2]},
+                             'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
                         ]})
                         continue
                     text_val = row[1][1:]  # drop leading apostrophe
-                    num_len = len(text_val.rstrip('.'))
-                    runs = [{'startIndex': 0, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}}]
-                    if len(text_val) > num_len:
-                        runs.append({'startIndex': num_len, 'format': {'foregroundColor': blue}})
+                    num_dots = len(text_val) - len(text_val.lstrip('.'))
+                    runs = []
+                    if num_dots > 0:
+                        runs.append({'startIndex': 0, 'format': {'foregroundColor': blue}})
+                    if num_dots < len(text_val):
+                        runs.append({'startIndex': num_dots, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}})
                     rows_data.append({'values': [
-                        {'userEnteredValue': {'stringValue': row[0]}},
+                        {'userEnteredValue': {'stringValue': row[0]},
+                         'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
                         {'userEnteredValue': {'stringValue': text_val}, 'textFormatRuns': runs,
                          'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'}}},
-                        {'userEnteredValue': {'stringValue': row[2]}},
+                        {'userEnteredValue': {'stringValue': row[2]},
+                         'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
                     ]})
 
                 ucreq = {'requests': [{'updateCells': {
                     'range': {'sheetId': sheet_id, 'startRowIndex': start_row - 1, 'endRowIndex': end_row,
                               'startColumnIndex': start_col, 'endColumnIndex': end_col},
-                    'rows': rows_data, 'fields': 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat'}}]}
+                    'rows': rows_data, 'fields': 'userEnteredValue,textFormatRuns,userEnteredFormat'}}]}
                 self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body=ucreq).execute()
 
             # Write match ELO changes to the sheet (column I for P1 change)
