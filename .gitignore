@@ -13,4 +13,5 @@ __pycache__/
 *.bat
 *.code-workspace
 ccttc_ratings.json
+mongodb_config.py
 

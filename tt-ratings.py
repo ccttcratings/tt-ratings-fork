@@ -17,6 +17,8 @@ import httplib2
 import os.path
 import re
 
+from mongodb_config import CONNECTION_URI
+
 class ELO:
 
     def __init__(self):
@@ -167,7 +169,7 @@ class Player:
         return new_rating
 
 class MongoDB():
-    CONNECTION_URI = '***REMOVED***'
+    CONNECTION_URI = CONNECTION_URI
 
     def __init__(self, date_str):
         client = MongoClient(
