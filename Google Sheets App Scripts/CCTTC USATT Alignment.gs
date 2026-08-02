@@ -100,14 +100,16 @@ function alignToUSATT() {
   var todayStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
   for (var i = 0; i < rows.length; i++) {
     if (isNaN(rows[i].club)) continue;
-    var newRating = rows[i].club - offset;
-    sheet.getRange('C' + rows[i].row).setValue(round2(newRating));
+    // USATT ratings live on a quarter-point scale (x.00/.25/.50/.75), so round
+    // every aligned rating to the nearest quarter.
+    var newRating = roundQuarter(rows[i].club - offset);
+    sheet.getRange('C' + rows[i].row).setValue(newRating);
     sheet.getRange('D' + rows[i].row).setValue(todayStr);
   }
 
   var applied = -offset;
   var summary = 'Applied USATT alignment offset of ' + round2(offset) +
-    ' (' + (applied < 0 ? '' : '+') + round2(applied) + ' to every rating). ' +
+    ' (' + (applied < 0 ? '' : '+') + round2(applied) + ' to every rating, rounded to the nearest 0.25). ' +
     'Based on ' + validCount + ' valid official rating(s): ' + validNames.join(', ');
   Logger.log(summary);
   appendLog(ss, new Date(), round2(offset), 'APPLIED', summary);
@@ -164,4 +166,9 @@ function appendLog(ss, date, offset, status, message) {
 
 function round2(v) {
   return Math.round(v * 100) / 100;
+}
+
+function roundQuarter(v) {
+  // Round to the nearest 0.25 so ratings stay on the USATT quarter-point scale.
+  return Math.round(v * 4) / 4;
 }
