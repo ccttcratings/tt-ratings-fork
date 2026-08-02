@@ -257,6 +257,47 @@ function findWinners() {
   }
 
   var score_list = sheet.getRangeList(["I3:U17", "I20:U34", "I37:U51"]).getRanges();
+
+  // Count how often each league player appears in the score rows. Extra matches
+  // played after the round robin (rematches or matches against players outside the
+  // league) should NOT affect the winner or tiebreakers. We cap each league at its
+  // round-robin size N*(N-1)/2 and ignore duplicate pairs (rematches). Guests who
+  // only appear once are excluded from the league size so they don't inflate it.
+  var appearance_counts = [{}, {}, {}];
+  for (var i = 0; i < 3; ++i) {
+    var appearance_rows = score_list[i].getValues();
+    for (var j = 0; j < 15; ++j) {
+      var appearance_row = appearance_rows[j];
+      if (!appearance_row[0] || !appearance_row[2]) {
+        continue;
+      }
+      var a1 = String(appearance_row[0]).trim();
+      var a2 = String(appearance_row[2]).trim();
+      if (a1 === "" || a2 === "") {
+        continue;
+      }
+      appearance_counts[i][a1] = (appearance_counts[i][a1] || 0) + 1;
+      appearance_counts[i][a2] = (appearance_counts[i][a2] || 0) + 1;
+    }
+  }
+
+  var round_robin_matches = [0, 0, 0];
+  for (var i = 0; i < 3; ++i) {
+    var league_names = Object.keys(league_results[i]);
+    var has_guests = league_names.length >= 3;
+    var rr_player_count = 0;
+    for (var n = 0; n < league_names.length; ++n) {
+      var appearances = appearance_counts[i][league_names[n]] || 0;
+      if (!has_guests || appearances >= 2) {
+        rr_player_count++;
+      }
+    }
+    round_robin_matches[i] = rr_player_count * (rr_player_count - 1) / 2;
+    Logger.log("League " + (i+1) + ": round-robin matches = " + round_robin_matches[i]);
+  }
+
+  var seen_pairs = [{}, {}, {}];
+  var match_count = [0, 0, 0];
   for (var i = 0; i < 3; ++i) {
     var base_index = i * 17 + 3;
     sheet.getRange(base_index, 7, 15, 2).setBackground("#d9d9d9");
@@ -279,6 +320,21 @@ function findWinners() {
         Logger.log("Available players: " + Object.keys(league_results[i]).join(", "));
         continue;
       }
+
+      // Skip rematches (same pair already played).
+      var pair_key = p1_name < p2_name ? p1_name + "|" + p2_name : p2_name + "|" + p1_name;
+      if (seen_pairs[i][pair_key]) {
+        Logger.log("Duplicate pair ignored (extra match): " + p1_name + " vs " + p2_name);
+        continue;
+      }
+      seen_pairs[i][pair_key] = true;
+
+      // Ignore matches beyond the round-robin size.
+      if (match_count[i] >= round_robin_matches[i]) {
+        Logger.log("Match beyond round robin ignored: " + p1_name + " vs " + p2_name);
+        continue;
+      }
+      match_count[i]++;
 
       var scores_only = [];
       for (var k = 3; k < match_scores.length; k++) {
