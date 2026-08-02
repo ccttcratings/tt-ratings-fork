@@ -9,9 +9,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.auth.exceptions import RefreshError
+from google_auth_httplib2 import AuthorizedHttp
 from collections import Counter
 import argparse
 import copy
+import httplib2
 import os.path
 import re
 
@@ -508,7 +510,9 @@ class GoogleSheet():
 
     def get_sheet(self):
         try:
-            service = build('sheets', 'v4', credentials=self.creds)
+            # Longer timeout (300s) to handle slow internet connections
+            http = AuthorizedHttp(self.creds, http=httplib2.Http(timeout=300))
+            service = build('sheets', 'v4', http=http)
             self.sheet = service.spreadsheets()
         except HttpError as err:
             print(f'Failed to get spreadsheet, error: {err}')
@@ -701,11 +705,14 @@ class GoogleSheet():
                         except KeyError:
                             rating_diff_num = 0
                             rating_diff = '0.00'
-                    # Pad rating_diff with apostrophe prefix + trailing space for alignment
-                    padded_diff = f"'{rating_diff:<7}"
+                    # Pad rating_diff with '.' characters colored to match the E-column background
+                    # (#c9daf8) so they are invisible but occupy real width on every platform
+                    # (trailing spaces get trimmed on Android). Leading apostrophe forces text;
+                    # USER_ENTERED strips the apostrophe from the stored value.
+                    pad_len = max(7 - len(rating_diff), 0)
+                    padded_diff = "'" + rating_diff + '.' * pad_len
                     before_rating = v[0] - rating_diff_num
                     league_player_ratings[k] = [f'{before_rating:.2f}', padded_diff, f'{v[0]:.2f}']
-                    # Remove the @ format from newScoreSheet — padding is handled here
 
                 ranking += 1
                 active_player = True
@@ -724,8 +731,51 @@ class GoogleSheet():
                         values.append(league_player_ratings[p])
                     else:
                         values.append(['', '', ''])
-                self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.ratings_range[l - 1],
-                                           valueInputOption='RAW', body={'values': values}).execute()
+
+                # Write via updateCells: stringValue stores clean text (no literal apostrophe),
+                # and textFormatRuns colors the trailing '.' padding blue (#c9daf8, the E-column
+                # background) so it is invisible but keeps real width on all platforms.
+                sheet_name = self.ratings_range[l - 1].split('!')[0]
+                range_parts = self.ratings_range[l - 1].split('!')[1].split(':')
+                start_row = int(re.search(r'\d+', range_parts[0]).group())
+                end_row = int(re.search(r'\d+', range_parts[1]).group())
+                start_col = ord(range_parts[0][0]) - ord('A')  # D=3
+                end_col = ord(range_parts[1][0]) - ord('A') + 1  # F=5
+
+                spreadsheet = self.sheet.get(spreadsheetId=self.SPREADSHEET_ID).execute()
+                sheet_id = None
+                for sheet in spreadsheet.get('sheets', []):
+                    if sheet['properties']['title'] == sheet_name:
+                        sheet_id = sheet['properties']['sheetId']
+                        break
+
+                blue = {'red': 0.7882353, 'green': 0.85490197, 'blue': 0.972549}
+                rows_data = []
+                for row in values:
+                    if not row[1]:
+                        rows_data.append({'values': [
+                            {'userEnteredValue': {'stringValue': row[0]}},
+                            {'userEnteredValue': {'stringValue': ''}, 'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'}}},
+                            {'userEnteredValue': {'stringValue': row[2]}},
+                        ]})
+                        continue
+                    text_val = row[1][1:]  # drop leading apostrophe
+                    num_len = len(text_val.rstrip('.'))
+                    runs = [{'startIndex': 0, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}}]
+                    if len(text_val) > num_len:
+                        runs.append({'startIndex': num_len, 'format': {'foregroundColor': blue}})
+                    rows_data.append({'values': [
+                        {'userEnteredValue': {'stringValue': row[0]}},
+                        {'userEnteredValue': {'stringValue': text_val}, 'textFormatRuns': runs,
+                         'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'}}},
+                        {'userEnteredValue': {'stringValue': row[2]}},
+                    ]})
+
+                ucreq = {'requests': [{'updateCells': {
+                    'range': {'sheetId': sheet_id, 'startRowIndex': start_row - 1, 'endRowIndex': end_row,
+                              'startColumnIndex': start_col, 'endColumnIndex': end_col},
+                    'rows': rows_data, 'fields': 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat'}}]}
+                self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body=ucreq).execute()
 
             # Write match ELO changes to the sheet (column I for P1 change)
             if match_rating_changes:
@@ -774,8 +824,13 @@ class GoogleSheet():
                                 new_row.append('')
 
                             if p1_name and p2_name:
+                                # Only treat as a completed match if this row actually has game
+                                # scores; otherwise an empty row with the same player pair would
+                                # wrongly inherit the ELO change from a different match.
+                                has_scores = len(row) > 4 and isinstance(row[3], (int, float)) \
+                                    and isinstance(row[4], (int, float))
                                 match_key = (p1_name, p2_name)
-                                if match_key in match_rating_changes:
+                                if has_scores and match_key in match_rating_changes:
                                     p1_change, p2_change = match_rating_changes[match_key]
                                     # Put P1's change in column I (index 1) - absolute value, 2 decimal places
                                     new_row[1] = f'{abs(p1_change):.2f}'
