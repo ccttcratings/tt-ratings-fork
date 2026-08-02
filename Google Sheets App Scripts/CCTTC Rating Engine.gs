@@ -18,6 +18,7 @@ var RATINGS_SHEET_NAME = 'Ratings';
 var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
 var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
 var LEAGUE_RATING_RANGES = ['D3:F8', 'D20:F25', 'D37:F42'];
+var LEAGUE_START_ROWS = [3, 20, 37];
 
 function getCurrentRatings(sheet) {
   var values = sheet.getRange('A2:D').getValues();
@@ -79,9 +80,9 @@ function updateRatingsFromSheet() {
   }
 
   var currentRatings = getCurrentRatings(ratingsSheet);
-  var changes = {};      // name -> sum of ELO changes
-  var needsRating = {};  // players seen without a rating
-  var matchChanges = {}; // 'p1||p2' -> {p1Change, p2Change}
+  var changes = {};       // name -> sum of ELO changes
+  var needsRating = {};   // players seen without a rating
+  var matchByRow = {};    // [league][rowIndex] -> {p1Change, p2Change}
 
   for (var l = 0; l < 3; l++) {
     var scoreValues = sheet.getRange(SCORE_RANGES[l]).getValues();
@@ -102,11 +103,10 @@ function updateRatingsFromSheet() {
 
       changes[parsed.p1] = (changes[parsed.p1] || 0) + (newP1 - p1Rating);
       changes[parsed.p2] = (changes[parsed.p2] || 0) + (newP2 - p2Rating);
-      matchChanges[parsed.p1 + '||' + parsed.p2] = {
+      if (!matchByRow[l]) matchByRow[l] = {};
+      matchByRow[l][j] = {
         p1Change: newP1 - p1Rating,
-        p2Change: newP2 - p2Rating,
-        row: j,
-        league: l
+        p2Change: newP2 - p2Rating
       };
     }
 
@@ -158,6 +158,7 @@ function updateRatingsFromSheet() {
   for (var l = 0; l < 3; l++) {
     var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
     var leagueRows = [];
+    var diffCells = []; // {row: absoluteRow, text: paddedDiff}
     for (var j = 0; j < playerValues.length; j++) {
       var name = String(playerValues[j][0]).trim();
       if (name === '') {
@@ -166,34 +167,53 @@ function updateRatingsFromSheet() {
         var oldVal = currentRatings[name] !== undefined ? currentRatings[name] : newRatings[name];
         var diff = newRatings[name] - oldVal;
         var diffStr = padDiff(diff);
-        leagueRows.push([round2(oldVal), diffStr, round2(newRatings[name])]);
+        // Write numeric old/new as strings (2 decimals) so "1000.00" stays literal.
+        leagueRows.push([oldVal.toFixed(2), diffStr, newRatings[name].toFixed(2)]);
+        diffCells.push({ row: j, text: diffStr });
       } else {
         leagueRows.push(['', '', '']);
       }
     }
     if (leagueRows.length > 0) {
-      sheet.getRange(LEAGUE_RATING_RANGES[l]).setNumberFormat('@');
-      sheet.getRange(LEAGUE_RATING_RANGES[l]).setValues(leagueRows);
+      var dRange = sheet.getRange(LEAGUE_RATING_RANGES[l]);
+      dRange.setNumberFormat('@');
+      dRange.setValues(leagueRows);
+    }
+    // Color the trailing '.' padding in column E blue (#c9daf8, the E-column
+    // background) so it is invisible but keeps real width on all platforms.
+    for (var k = 0; k < diffCells.length; k++) {
+      var txt = diffCells[k].text;
+      var numLen = txt.replace(/\.+$/, '').length;
+      if (numLen >= txt.length) continue; // no trailing dots to color
+      var absRow = LEAGUE_START_ROWS[l] + diffCells[k].row;
+      var rich = SpreadsheetApp.newRichTextValue()
+        .setText(txt)
+        .setForegroundColor(numLen, txt.length, '#c9daf8')
+        .build();
+      sheet.getRange('E' + absRow).setRichTextValue(rich);
     }
   }
 
-  // Write ELO change into column I (index 1) of each score row.
+  // Write ELO change into column J (index 1) of each score row, and color the
+  // winner's name cell green (column I for a P1 win, column K for a P2 win).
+  // Only rows that actually carry game scores get a change; an empty row with
+  // the same player pair must NOT inherit another match's change.
   for (var l = 0; l < 3; l++) {
     var range = sheet.getRange(SCORE_RANGES[l]);
     var values = range.getValues();
     var bg = range.getBackgrounds();
     for (var j = 0; j < values.length; j++) {
-      var p1 = String(values[j][0]).trim();
-      var p2 = String(values[j][2]).trim();
-      var key = p1 + '||' + p2;
-      if (matchChanges[key]) {
-        var mc = matchChanges[key];
-        values[j][1] = round2(Math.abs(mc.p1Change));
-        if (mc.p1Change > 0) {
-          bg[j][1] = '#c5eec5';
-        }
-      } else {
-        values[j][1] = '';
+      values[j][1] = '';            // clear stale ELO change first
+      var rowHasScores = values[j].length > 4 &&
+        !isNaN(parseFloat(values[j][3])) && !isNaN(parseFloat(values[j][4]));
+      if (!rowHasScores) continue;
+      var mc = matchByRow[l] && matchByRow[l][j];
+      if (!mc) continue;
+      values[j][1] = round2(Math.abs(mc.p1Change)).toFixed(2);
+      if (mc.p1Change > 0) {
+        bg[j][0] = '#c5eec5';       // P1 won -> highlight their name cell
+      } else if (mc.p2Change > 0) {
+        bg[j][2] = '#c5eec5';       // P2 won -> highlight their name cell
       }
     }
     range.setValues(values);
@@ -220,7 +240,8 @@ function roundQuarter(v) {
 
 function padDiff(diff) {
   // Mirrors the Python period-padding so the diff column keeps real width.
-  var sign = diff >= 0 ? '+' : '';
+  // Python: '+X.XX' for increase, '-X.XX' for decrease, '0.00' for no change.
+  var sign = diff > 0 ? '+' : '';
   var body = sign + round2(diff).toFixed(2);
   var padLen = Math.max(7 - body.length, 0);
   return body + new Array(padLen + 1).join('.');
