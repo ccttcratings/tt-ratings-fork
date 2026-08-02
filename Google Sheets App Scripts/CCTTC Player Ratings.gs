@@ -258,11 +258,27 @@ function findWinners() {
 
   var score_list = sheet.getRangeList(["I3:U17", "I20:U34", "I37:U51"]).getRanges();
 
-  // Count how often each league player appears in the score rows. Extra matches
-  // played after the round robin (rematches or matches against players outside the
-  // league) should NOT affect the winner or tiebreakers. We cap each league at its
-  // round-robin size N*(N-1)/2 and ignore duplicate pairs (rematches). Guests who
-  // only appear once are excluded from the league size so they don't inflate it.
+  // Decide which rows are official round-robin matches for each league. Extra
+  // matches (rematches, or matches against guests/players outside the league)
+  // must NOT affect the winner or tiebreakers.
+  //
+  //   - 4+ players: single round robin, each pair once (N*(N-1)/2 matches).
+  //     Incomplete matches are skipped individually; the round is not voided.
+  //   - 3 players: players play multiple rounds (each pair once per round).
+  //     A round counts only if every match in it was completed; a partial
+  //     round is ignored entirely.
+  //
+  // Players who appear only once in the score rows (guests) are excluded from
+  // the league roster so they can't affect the round-robin structure.
+  function rowHasScores(match_scores) {
+    for (var k = 3; k < match_scores.length; k++) {
+      if (typeof match_scores[k] === "number") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   var appearance_counts = [{}, {}, {}];
   for (var i = 0; i < 3; ++i) {
     var appearance_rows = score_list[i].getValues();
@@ -281,23 +297,87 @@ function findWinners() {
     }
   }
 
-  var round_robin_matches = [0, 0, 0];
+  var count_row = [[], [], []];
   for (var i = 0; i < 3; ++i) {
     var league_names = Object.keys(league_results[i]);
     var has_guests = league_names.length >= 3;
-    var rr_player_count = 0;
+    var league_players = [];
     for (var n = 0; n < league_names.length; ++n) {
       var appearances = appearance_counts[i][league_names[n]] || 0;
       if (!has_guests || appearances >= 2) {
-        rr_player_count++;
+        league_players.push(league_names[n]);
       }
     }
-    round_robin_matches[i] = rr_player_count * (rr_player_count - 1) / 2;
-    Logger.log("League " + (i+1) + ": round-robin matches = " + round_robin_matches[i]);
-  }
+    Logger.log("League " + (i+1) + " players: " + league_players.join(", "));
 
-  var seen_pairs = [{}, {}, {}];
-  var match_count = [0, 0, 0];
+    var league_scores = score_list[i].getValues();
+
+    if (league_players.length == 3) {
+      // Multi-round (3 players): each pair once per round. Only complete
+      // rounds count toward the winner.
+      var pair_occ = {};
+      var pair_occ_scores = {};
+      var row_info = [];
+      for (var j = 0; j < 15; ++j) {
+        var ms = league_scores[j];
+        if (!ms[0] || !ms[2]) continue;
+        var n1 = String(ms[0]).trim();
+        var n2 = String(ms[2]).trim();
+        if (n1 === "" || n2 === "") continue;
+        if (n1 === n2) continue;
+        if (league_players.indexOf(n1) < 0 || league_players.indexOf(n2) < 0) continue;
+        var pk = n1 < n2 ? n1 + "|" + n2 : n2 + "|" + n1;
+        var occ = (pair_occ[pk] || 0) + 1;
+        pair_occ[pk] = occ;
+        pair_occ_scores[pk + "|" + occ] = rowHasScores(ms);
+        row_info[j] = { pk: pk, occ: occ };
+      }
+      var complete_rounds = {};
+      var max_rounds = 0;
+      for (var pk in pair_occ) {
+        max_rounds = Math.max(max_rounds, pair_occ[pk]);
+      }
+      for (var r = 1; r <= max_rounds; ++r) {
+        var all_complete = true;
+        for (var pk in pair_occ) {
+          if (pair_occ_scores[pk + "|" + r] !== true) {
+            all_complete = false;
+            break;
+          }
+        }
+        if (all_complete) {
+          complete_rounds[r] = true;
+        }
+        Logger.log("League " + (i+1) + ": round " + r + (all_complete ? " complete" : " incomplete - ignored"));
+      }
+      for (var j = 0; j < 15; ++j) {
+        count_row[i][j] = !!(row_info[j] && complete_rounds[row_info[j].occ]);
+      }
+    } else {
+      // Single round robin: each pair once, capped at N*(N-1)/2. Incomplete
+      // matches are skipped individually (round not voided).
+      var rr_cap = league_players.length * (league_players.length - 1) / 2;
+      var seen = {};
+      var rr_count = 0;
+      for (var j = 0; j < 15; ++j) {
+        var ms = league_scores[j];
+        if (!ms[0] || !ms[2]) continue;
+        var n1 = String(ms[0]).trim();
+        var n2 = String(ms[2]).trim();
+        if (n1 === "" || n2 === "") continue;
+        if (n1 === n2) continue;
+        if (league_players.indexOf(n1) < 0 || league_players.indexOf(n2) < 0) continue;
+        var pk = n1 < n2 ? n1 + "|" + n2 : n2 + "|" + n1;
+        if (seen[pk]) continue;
+        seen[pk] = true;
+        if (!rowHasScores(ms)) continue;
+        if (rr_count >= rr_cap) continue;
+        rr_count++;
+        count_row[i][j] = true;
+      }
+      Logger.log("League " + (i+1) + ": round-robin size " + rr_cap + ", " + rr_count + " matches counted");
+    }
+  }
   for (var i = 0; i < 3; ++i) {
     var base_index = i * 17 + 3;
     sheet.getRange(base_index, 7, 15, 2).setBackground("#d9d9d9");
@@ -321,20 +401,12 @@ function findWinners() {
         continue;
       }
 
-      // Skip rematches (same pair already played).
-      var pair_key = p1_name < p2_name ? p1_name + "|" + p2_name : p2_name + "|" + p1_name;
-      if (seen_pairs[i][pair_key]) {
-        Logger.log("Duplicate pair ignored (extra match): " + p1_name + " vs " + p2_name);
+      // Only count rows that are part of the official round-robin schedule
+      // (rematches, guest matches, incomplete rounds are excluded above).
+      if (!count_row[i][j]) {
+        Logger.log("Non round-robin match ignored: " + p1_name + " vs " + p2_name);
         continue;
       }
-      seen_pairs[i][pair_key] = true;
-
-      // Ignore matches beyond the round-robin size.
-      if (match_count[i] >= round_robin_matches[i]) {
-        Logger.log("Match beyond round robin ignored: " + p1_name + " vs " + p2_name);
-        continue;
-      }
-      match_count[i]++;
 
       var scores_only = [];
       for (var k = 3; k < match_scores.length; k++) {
