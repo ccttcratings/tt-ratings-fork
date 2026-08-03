@@ -158,7 +158,7 @@ function updateRatingsFromSheet() {
   for (var l = 0; l < 3; l++) {
     var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
     var leagueRows = [];
-    var diffCells = []; // {row: absoluteRow, text: paddedDiff}
+    var padCells = []; // {row, col, text} cells carrying the trailing '.' fill
     for (var j = 0; j < playerValues.length; j++) {
       var name = String(playerValues[j][0]).trim();
       if (name === '') {
@@ -166,10 +166,17 @@ function updateRatingsFromSheet() {
       } else if (newRatings[name] !== undefined) {
         var oldVal = currentRatings[name] !== undefined ? currentRatings[name] : newRatings[name];
         var diff = newRatings[name] - oldVal;
+        // Write old/new ratings and the diff as strings (2 decimals) so
+        // "1000.00" stays literal; each ends with one trailing '.' (colored to
+        // match the column background below) because trailing spaces get
+        // trimmed on Android and would break the right-justified alignment.
+        var dStr = oldVal.toFixed(2) + '.';
         var diffStr = padDiff(diff);
-        // Write numeric old/new as strings (2 decimals) so "1000.00" stays literal.
-        leagueRows.push([oldVal.toFixed(2), diffStr, newRatings[name].toFixed(2)]);
-        diffCells.push({ row: j, text: diffStr });
+        var fStr = newRatings[name].toFixed(2) + '.';
+        leagueRows.push([dStr, diffStr, fStr]);
+        padCells.push({ row: j, col: 0, text: dStr });
+        padCells.push({ row: j, col: 1, text: diffStr });
+        padCells.push({ row: j, col: 2, text: fStr });
       } else {
         leagueRows.push(['', '', '']);
       }
@@ -182,21 +189,19 @@ function updateRatingsFromSheet() {
       // below 1000 (900.00 is 6 chars vs 1000.00 is 7 chars).
       dRange.setHorizontalAlignment('right');
     }
-    // Color the leading '.' padding in column E blue (#c9daf8, the E-column
-    // background) so it is invisible but holds the width that right-justifies
-    // the visible diff number into alignment with columns D and F.
-    for (var k = 0; k < diffCells.length; k++) {
-      var txt = diffCells[k].text;
-      var numStart = 0;
-      while (numStart < txt.length && txt.charAt(numStart) === '.') numStart++;
-      if (numStart === 0) continue; // no leading dots to color
-      var absRow = LEAGUE_START_ROWS[l] + diffCells[k].row;
+    // Color each trailing '.' fill blue (#c9daf8, the D/E/F column background)
+    // so it is invisible but holds real width on every platform.
+    var cols = 'DEF';
+    for (var k = 0; k < padCells.length; k++) {
+      var txt = padCells[k].text;
+      if (txt.charAt(txt.length - 1) !== '.') continue; // no trailing dot
+      var absRow = LEAGUE_START_ROWS[l] + padCells[k].row;
       var dotStyle = SpreadsheetApp.newTextStyle().setForegroundColor('#c9daf8').build();
       var rich = SpreadsheetApp.newRichTextValue()
         .setText(txt)
-        .setTextStyle(0, numStart, dotStyle)
+        .setTextStyle(txt.length - 1, txt.length, dotStyle)
         .build();
-      sheet.getRange('E' + absRow).setRichTextValue(rich);
+      sheet.getRange(cols.charAt(padCells[k].col) + absRow).setRichTextValue(rich);
     }
   }
 
@@ -210,6 +215,10 @@ function updateRatingsFromSheet() {
     var bg = range.getBackgrounds();
     for (var j = 0; j < values.length; j++) {
       values[j][1] = '';            // clear stale ELO change first
+      // Clear any stale winner highlight on this row's name cells; a row with
+      // no winner this run must not stay green.
+      bg[j][0] = null;
+      bg[j][2] = null;
       var rowHasScores = values[j].length > 4 &&
         !isNaN(parseFloat(values[j][3])) && !isNaN(parseFloat(values[j][4]));
       if (!rowHasScores) continue;
@@ -245,11 +254,9 @@ function roundQuarter(v) {
 }
 
 function padDiff(diff) {
-  // Leading invisible '.' padding so the diff is right-justified into the same
-  // width as D/F (which are right-aligned too, for 3- and 4-digit ratings).
-  // Python: '+X.XX' for increase, '-X.XX' for decrease, '0.00' for no change.
+  // '+X.XX.' for increase, '-X.XX.' for decrease, '0.00.' for no change. The
+  // trailing '.' is colored to match the column background (see caller) so it
+  // is invisible but occupies real width (trailing spaces get trimmed).
   var sign = diff > 0 ? '+' : '';
-  var body = sign + round2(diff).toFixed(2);
-  var padLen = Math.max(7 - body.length, 0);
-  return new Array(padLen + 1).join('.') + body;
+  return sign + round2(diff).toFixed(2) + '.';
 }

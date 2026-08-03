@@ -707,15 +707,14 @@ class GoogleSheet():
                         except KeyError:
                             rating_diff_num = 0
                             rating_diff = '0.00'
-                    # Pad rating_diff with LEADING '.' characters colored to match the
-                    # E-column background (#c9daf8) so they are invisible but occupy real
-                    # width. The leading padding right-justifies the visible diff number
-                    # so its decimal point lines up with the right-justified D and F
-                    # columns (ratings now go below 1000, so centering no longer aligns).
-                    pad_len = max(7 - len(rating_diff), 0)
-                    padded_diff = "'" + '.' * pad_len + rating_diff
+                    # Pad rating_diff with one trailing '.' character colored to match the
+                    # E-column background (#c9daf8) so it is invisible but occupies real
+                    # width on every platform (trailing spaces get trimmed on Android).
+                    # D and F get the same single trailing '.' so all three right-justified
+                    # values keep their decimal points aligned.
+                    padded_diff = "'" + rating_diff + '.'
                     before_rating = v[0] - rating_diff_num
-                    league_player_ratings[k] = [f'{before_rating:.2f}', padded_diff, f'{v[0]:.2f}']
+                    league_player_ratings[k] = [f'{before_rating:.2f}.', padded_diff, f'{v[0]:.2f}.']
 
                 ranking += 1
                 active_player = True
@@ -753,31 +752,33 @@ class GoogleSheet():
                         break
 
                 blue = {'red': 0.7882353, 'green': 0.85490197, 'blue': 0.972549}
+
+                def _padded_cell(text_val):
+                    # Right-justified text cell whose trailing '.' fill is colored
+                    # #c9daf8 (the D/E/F column background) so it is invisible but
+                    # keeps real width on all platforms.
+                    cell = {'userEnteredValue': {'stringValue': text_val},
+                            'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'},
+                                                  'horizontalAlignment': 'RIGHT'}}
+                    if text_val.endswith('.'):
+                        cell['textFormatRuns'] = [
+                            {'startIndex': len(text_val) - 1, 'format': {'foregroundColor': blue}}]
+                    return cell
+
                 rows_data = []
                 for row in values:
                     if not row[1]:
                         rows_data.append({'values': [
-                            {'userEnteredValue': {'stringValue': row[0]},
-                             'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
-                            {'userEnteredValue': {'stringValue': ''}, 'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'}}},
-                            {'userEnteredValue': {'stringValue': row[2]},
-                             'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
+                            _padded_cell(row[0]),
+                            _padded_cell(''),
+                            _padded_cell(row[2]),
                         ]})
                         continue
                     text_val = row[1][1:]  # drop leading apostrophe
-                    num_dots = len(text_val) - len(text_val.lstrip('.'))
-                    runs = []
-                    if num_dots > 0:
-                        runs.append({'startIndex': 0, 'format': {'foregroundColor': blue}})
-                    if num_dots < len(text_val):
-                        runs.append({'startIndex': num_dots, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}})
                     rows_data.append({'values': [
-                        {'userEnteredValue': {'stringValue': row[0]},
-                         'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
-                        {'userEnteredValue': {'stringValue': text_val}, 'textFormatRuns': runs,
-                         'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'}}},
-                        {'userEnteredValue': {'stringValue': row[2]},
-                         'userEnteredFormat': {'horizontalAlignment': 'RIGHT'}},
+                        _padded_cell(row[0]),
+                        _padded_cell(text_val),
+                        _padded_cell(row[2]),
                     ]})
 
                 ucreq = {'requests': [{'updateCells': {
@@ -839,6 +840,25 @@ class GoogleSheet():
                                 has_scores = len(row) > 4 and isinstance(row[3], (int, float)) \
                                     and isinstance(row[4], (int, float))
                                 match_key = (p1_name, p2_name)
+                                # Clear any stale winner highlight on this row's name cells
+                                # (columns I and K); a row with no winner this run must not
+                                # stay green. The green request below (if any) is appended
+                                # after these clears, so it wins for the actual winner.
+                                if sheet_id is not None:
+                                    for clear_col in (8, 10):
+                                        format_requests.append({
+                                            'repeatCell': {
+                                                'range': {
+                                                    'sheetId': sheet_id,
+                                                    'startRowIndex': start_row + row_idx,
+                                                    'endRowIndex': start_row + row_idx + 1,
+                                                    'startColumnIndex': clear_col,
+                                                    'endColumnIndex': clear_col + 1,
+                                                },
+                                                'cell': {'userEnteredFormat': {}},
+                                                'fields': 'userEnteredFormat.backgroundColor'
+                                            }
+                                        })
                                 if has_scores and match_key in match_rating_changes:
                                     p1_change, p2_change = match_rating_changes[match_key]
                                     # Put P1's change in column I (index 1) - absolute value, 2 decimal places
