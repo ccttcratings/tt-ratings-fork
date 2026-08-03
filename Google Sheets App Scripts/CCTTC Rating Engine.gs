@@ -66,6 +66,7 @@ function updateRatingsFromSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var sheetName = sheet.getName();
+  Logger.log('Engine start (v-f1624e2) on sheet: ' + sheetName);
 
   if (sheetName === RATINGS_SHEET_NAME || sheetName === 'Template') {
     SpreadsheetApp.getUi().alert(
@@ -202,6 +203,16 @@ function updateRatingsFromSheet() {
       // Right-justify D/E/F so decimal points align even when ratings fall
       // below 1000 (900.00 is 6 chars vs 1000.00 is 7 chars).
       dRange.setHorizontalAlignment('right');
+      // Diagnostic: confirm nothing in D/E/F came back as a formula ('=' prefix).
+      var check = dRange.getValues();
+      for (var ci = 0; ci < check.length; ci++) {
+        for (var cj = 0; cj < check[ci].length; cj++) {
+          if (String(check[ci][cj]).charAt(0) === '=') {
+            Logger.log('Engine: WARNING - ' + LEAGUE_RATING_RANGES[l] + ' cell ' +
+              ci + ',' + cj + ' stored as formula: ' + check[ci][cj]);
+          }
+        }
+      }
     }
   }
 
@@ -235,6 +246,7 @@ function updateRatingsFromSheet() {
     range.setBackgrounds(bg);
   }
 
+  Logger.log('Engine updateRatingsFromSheet complete.');
   ss.toast('Ratings updated for ' + sortedNames.length + ' players.', 'Done', 3);
 
   if (unrated.length > 0) {
