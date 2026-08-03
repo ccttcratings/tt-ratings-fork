@@ -31,6 +31,16 @@ class ELO:
         counts = Counter(results)
         game_score_diff = counts[1] - counts[0]
         rating_diff = player1_rating - player2_rating
+
+        sign = 1 if game_score_diff > 0 else -1
+        if abs(game_score_diff) == 2 and len(score_differentials) == 2:
+            game_score_diff = 3 * sign
+        elif abs(game_score_diff) == 1 and len(score_differentials) == 3:
+            is_higher_rated = rating_diff >= 0
+            is_winner = game_score_diff > 0
+            if not (is_higher_rated ^ is_winner):
+                game_score_diff = 2 * sign
+
         rating_change = self.rating_change(rating_diff, game_score_diff)
         return player1_rating + rating_change
 
@@ -1072,7 +1082,7 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
                 score1 = row[idx]
                 score2 = row[idx + 1]
 
-                if isinstance(score1, int) and isinstance(score2, int):
+                if isinstance(score1, int) and isinstance(score2, int) and not (score1 == 0 and score2 == 0):
                     score_diffs_p1vp2.append(score1 - score2)
                     score_diffs_p2vp1.append(score2 - score1)
             except (IndexError, TypeError, ValueError):

@@ -15,6 +15,16 @@ function updateRating(p1Rating, p2Rating, scoreDiffs) {
   var zeros = results.length - ones;
   var gameScoreDiff = ones - zeros;
   var ratingDiff = p1Rating - p2Rating;
+  var sign = gameScoreDiff > 0 ? 1 : -1;
+  if (Math.abs(gameScoreDiff) === 2 && scoreDiffs.length === 2) {
+    gameScoreDiff = 3 * sign;
+  } else if (Math.abs(gameScoreDiff) === 1 && scoreDiffs.length === 3) {
+    var isHigherRated = ratingDiff >= 0;
+    var isWinner = gameScoreDiff > 0;
+    if (!(isHigherRated !== isWinner)) {
+      gameScoreDiff = 2 * sign;
+    }
+  }
   return p1Rating + ratingChange(ratingDiff, gameScoreDiff);
 }
 
