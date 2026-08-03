@@ -158,7 +158,6 @@ function updateRatingsFromSheet() {
   for (var l = 0; l < 3; l++) {
     var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
     var leagueRows = [];
-    var padCells = []; // {row, col, text} cells carrying the trailing '.' fill
     for (var j = 0; j < playerValues.length; j++) {
       var name = String(playerValues[j][0]).trim();
       if (name === '') {
@@ -174,9 +173,6 @@ function updateRatingsFromSheet() {
         var diffStr = padDiff(diff);
         var fStr = newRatings[name].toFixed(2) + '.';
         leagueRows.push([dStr, diffStr, fStr]);
-        padCells.push({ row: j, col: 0, text: dStr });
-        padCells.push({ row: j, col: 1, text: diffStr });
-        padCells.push({ row: j, col: 2, text: fStr });
       } else {
         leagueRows.push(['', '', '']);
       }
@@ -184,24 +180,28 @@ function updateRatingsFromSheet() {
     if (leagueRows.length > 0) {
       var dRange = sheet.getRange(LEAGUE_RATING_RANGES[l]);
       dRange.setNumberFormat('@');
-      dRange.setValues(leagueRows);
+      // Write D/E/F as rich text so '+'-prefixed strings (e.g. "+1000.50") are
+      // stored as plain text and never parsed as formulas by setValues. The
+      // trailing '.' is colored #c9daf8 (the column background) so it is
+      // invisible but holds real width on every platform.
+      var richRows = [];
+      for (var j = 0; j < leagueRows.length; j++) {
+        var richRow = [];
+        for (var c = 0; c < 3; c++) {
+          var txt = leagueRows[j][c];
+          var builder = SpreadsheetApp.newRichTextValue().setText(txt);
+          if (txt.charAt(txt.length - 1) === '.') {
+            var dotStyle = SpreadsheetApp.newTextStyle().setForegroundColor('#c9daf8').build();
+            builder.setTextStyle(txt.length - 1, txt.length, dotStyle);
+          }
+          richRow.push(builder.build());
+        }
+        richRows.push(richRow);
+      }
+      dRange.setRichTextValues(richRows);
       // Right-justify D/E/F so decimal points align even when ratings fall
       // below 1000 (900.00 is 6 chars vs 1000.00 is 7 chars).
       dRange.setHorizontalAlignment('right');
-    }
-    // Color each trailing '.' fill blue (#c9daf8, the D/E/F column background)
-    // so it is invisible but holds real width on every platform.
-    var cols = 'DEF';
-    for (var k = 0; k < padCells.length; k++) {
-      var txt = padCells[k].text;
-      if (txt.charAt(txt.length - 1) !== '.') continue; // no trailing dot
-      var absRow = LEAGUE_START_ROWS[l] + padCells[k].row;
-      var dotStyle = SpreadsheetApp.newTextStyle().setForegroundColor('#c9daf8').build();
-      var rich = SpreadsheetApp.newRichTextValue()
-        .setText(txt)
-        .setTextStyle(txt.length - 1, txt.length, dotStyle)
-        .build();
-      sheet.getRange(cols.charAt(padCells[k].col) + absRow).setRichTextValue(rich);
     }
   }
 
