@@ -754,15 +754,18 @@ class GoogleSheet():
                 blue = {'red': 0.7882353, 'green': 0.85490197, 'blue': 0.972549}
 
                 def _padded_cell(text_val):
-                    # Right-justified text cell whose trailing '.' fill is colored
-                    # #c9daf8 (the D/E/F column background) so it is invisible but
-                    # keeps real width on all platforms.
+                    # Right-justified text cell. A black run at index 0 keeps the
+                    # visible text black; the trailing '.' is colored #c9daf8 (the
+                    # D/E/F column background) so it is invisible but keeps real
+                    # width on all platforms.
                     cell = {'userEnteredValue': {'stringValue': text_val},
                             'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'},
                                                   'horizontalAlignment': 'RIGHT'}}
-                    if text_val.endswith('.'):
-                        cell['textFormatRuns'] = [
-                            {'startIndex': len(text_val) - 1, 'format': {'foregroundColor': blue}}]
+                    if text_val:
+                        runs = [{'startIndex': 0, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}}]
+                        if text_val.endswith('.'):
+                            runs.append({'startIndex': len(text_val) - 1, 'format': {'foregroundColor': blue}})
+                        cell['textFormatRuns'] = runs
                     return cell
 
                 rows_data = []
@@ -784,7 +787,8 @@ class GoogleSheet():
                 ucreq = {'requests': [{'updateCells': {
                     'range': {'sheetId': sheet_id, 'startRowIndex': start_row - 1, 'endRowIndex': end_row,
                               'startColumnIndex': start_col, 'endColumnIndex': end_col},
-                    'rows': rows_data, 'fields': 'userEnteredValue,textFormatRuns,userEnteredFormat'}}]}
+                    'rows': rows_data,
+                    'fields': 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment'}}]}
                 self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body=ucreq).execute()
 
             # Write match ELO changes to the sheet (column I for P1 change)

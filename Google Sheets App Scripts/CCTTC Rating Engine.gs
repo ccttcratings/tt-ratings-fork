@@ -210,11 +210,21 @@ function updateRatingsFromSheet() {
               horizontalAlignment: 'RIGHT'
             }
           };
-          if (txt.charAt(txt.length - 1) === '.') {
-            cell.textFormatRuns = [{
-              startIndex: txt.length - 1,
-              format: { foregroundColor: blue }
+          if (txt !== '') {
+            // Black run at index 0 keeps the visible text black (a lone dot run
+            // would bleed its color across the whole cell); the trailing '.' is
+            // then colored #c9daf8 so it is invisible against the background.
+            var runs = [{
+              startIndex: 0,
+              format: { foregroundColor: { red: 0, green: 0, blue: 0 } }
             }];
+            if (txt.charAt(txt.length - 1) === '.') {
+              runs.push({
+                startIndex: txt.length - 1,
+                format: { foregroundColor: blue }
+              });
+            }
+            cell.textFormatRuns = runs;
           }
           cells.push(cell);
         }
@@ -233,7 +243,7 @@ function updateRatingsFromSheet() {
               endColumnIndex: 6    // G exclusive
             },
             rows: rowsData,
-            fields: 'userEnteredValue,textFormatRuns,userEnteredFormat'
+            fields: 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment'
           }
         }]
       }, ss.getId());
