@@ -4,46 +4,44 @@ function hideInactivePlayers() {
   var playerNames = sheet.getRange("B2:B").getValues();
   sheet.showRows(2, playerNames.length);
 
+  // Column D = the last date a player's rating changed. Hide anyone who has
+  // never been dated or whose date is older than the 90-day (3 month) window.
+  // Contiguous hidden rows are hidden in single hideRows(start, numRows) calls
+  // — calling hideRows once per row is what makes the button slow.
+  var dateValues = sheet.getRange("D2:D").getValues();
   var today = new Date();
-  var ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(today.getDate() - 90);
+  var cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 90);
 
-  var allSheets = ss.getSheets();
-  var datePattern = /^\d{2}-\d{2}-\d{4}$/;
-  var lastPlayedDates = {};
-
-  for (var s = 0; s < allSheets.length; s++) {
-    var sheetName = allSheets[s].getName();
-    if (datePattern.test(sheetName)) {
-      var dateSheet = allSheets[s];
-      var sheetDate = new Date(sheetName);
-      var leagueRanges = ["C3:C8", "C20:C25", "C37:C42"];
-      for (var r = 0; r < leagueRanges.length; r++) {
-        var leaguePlayers = dateSheet.getRange(leagueRanges[r]).getValues();
-        for (var p = 0; p < leaguePlayers.length; p++) {
-          var playerName = String(leaguePlayers[p][0]).trim();
-          if (playerName !== "") {
-            if (!lastPlayedDates[playerName] || sheetDate > lastPlayedDates[playerName]) {
-              lastPlayedDates[playerName] = sheetDate;
-            }
-          }
-        }
-      }
-    }
-  }
-
+  var hideStart = -1;
+  var hideCount = 0;
   for (var i = 0; i < playerNames.length; ++i) {
-    if (playerNames[i][0] === "") {
+    if (String(playerNames[i][0]).trim() === "") {
       break;
     }
-    var playerName = String(playerNames[i][0]).trim();
-    var lastPlayedDate = lastPlayedDates[playerName];
-    if (lastPlayedDate && lastPlayedDate < ninetyDaysAgo) {
-      sheet.hideRows(i + 2);
-    } else if (!lastPlayedDate) {
-      sheet.hideRows(i + 2);
+    var lastDate = parseDateValue(dateValues[i][0]);
+    var shouldHide = !lastDate || lastDate < cutoff;
+    if (shouldHide) {
+      if (hideStart === -1) hideStart = i + 2;
+      hideCount++;
+    } else if (hideStart !== -1) {
+      sheet.hideRows(hideStart, hideCount);
+      hideStart = -1;
+      hideCount = 0;
     }
   }
+  if (hideStart !== -1) {
+    sheet.hideRows(hideStart, hideCount);
+  }
+}
+
+function parseDateValue(v) {
+  if (v instanceof Date) return v;
+  var s = String(v).trim();
+  if (s === "") return null;
+  var m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (m) return new Date(parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function showInactivePlayers() {

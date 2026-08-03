@@ -1,0 +1,1163 @@
+/**
+ * Ported from tt-ratings.py (class ELO, lines 22-142).
+ * Pure rating math used by the club-kit spreadsheet.
+ *
+ * updateRating(p1Rating, p2Rating, scoreDiffs):
+ *   scoreDiffs = [score1 - score2, ...] per game, positive means p1 won the game.
+ *   Returns p1's NEW rating after the match.
+ */
+
+function updateRating(p1Rating, p2Rating, scoreDiffs) {
+  var results = scoreDiffs.map(function (diff) {
+    return diff < 0 ? 0 : 1;
+  });
+  var ones = results.filter(function (r) { return r === 1; }).length;
+  var zeros = results.length - ones;
+  var gameScoreDiff = ones - zeros;
+  var ratingDiff = p1Rating - p2Rating;
+  var sign = gameScoreDiff > 0 ? 1 : -1;
+  if (Math.abs(gameScoreDiff) === 2 && scoreDiffs.length === 2) {
+    gameScoreDiff = 3 * sign;
+  } else if (Math.abs(gameScoreDiff) === 1 && scoreDiffs.length === 3) {
+    var isHigherRated = ratingDiff >= 0;
+    var isWinner = gameScoreDiff > 0;
+    if (!(isHigherRated !== isWinner)) {
+      gameScoreDiff = 2 * sign;
+    }
+  }
+  return p1Rating + ratingChange(ratingDiff, gameScoreDiff);
+}
+
+function expectedResult(p1Rating, p2Rating) {
+  var exp = (p2Rating - p1Rating) / 400.0;
+  return 1 / ((Math.pow(10.0, exp)) + 1);
+}
+
+function ratingChange(ratingDiff, gameScoreDiff) {
+  var isHigherRated = ratingDiff >= 0;
+  var isWinner = gameScoreDiff > 0;
+  var isTie = gameScoreDiff === 0;
+  var isExpected = !(isHigherRated !== isWinner);
+  ratingDiff = Math.abs(ratingDiff);
+  var gamesLeft = Math.abs(gameScoreDiff) - 1;
+
+  if (isTie) {
+    gamesLeft = 0;
+    isWinner = !isHigherRated;
+    isExpected = false;
+  }
+
+  var ratingRangeList = [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195,
+    210, 225, 240, 255, 270, 285, 300, 315, 330, 345, 360, 375,
+    390, 405, 420, 435, 450, 465, 480];
+
+  var ratingChangeExpectedDict = {
+    0: [4, 6, 8], 1: [3.25, 5.5, 7.75], 2: [2.5, 5, 7.5], 3: [1.75, 4.5, 7.25],
+    4: [1, 4, 7], 5: [0.25, 3.5, 6.75], 6: [-0.5, 3, 6.5], 7: [-1.25, 2.5, 6.25],
+    8: [-2, 2, 6], 9: [-2.75, 1.5, 5.75], 10: [-3.5, 1, 5.5], 11: [-4.25, 0.5, 5.25],
+    12: [-5, 0, 5], 13: [-5.75, -0.5, 4.75], 14: [-6.5, -1, 4.5], 15: [-7.25, -1.5, 4.25],
+    16: [-8, -2, 4], 17: [-8.75, -2.5, 3.75], 18: [-9.5, -3, 3.5], 19: [-10.25, -3.5, 3.25],
+    20: [-11, -4, 3], 21: [-11.75, -4.5, 2.75], 22: [-12.5, -5, 2.5], 23: [-13.25, -5.5, 2.25],
+    24: [-14, -6, 2], 25: [-14.75, -6.5, 1.75], 26: [-15.5, -7, 1.5], 27: [-16.25, -7.5, 1.25],
+    28: [-17, -8, 1], 29: [-17.75, -8.5, 0.75], 30: [-18.5, -9, 0.5], 31: [-19.25, -9.5, 0.25],
+    32: [-20, -10, 0]
+  };
+
+  var ratingChangeUnexpectedDict = {
+    0: [4, 6, 8], 1: [5, 7.25, 9.5], 2: [6, 8.5, 11], 3: [7.25, 10, 12.75],
+    4: [8.5, 11.5, 14.5], 5: [10, 13.25, 16.5], 6: [11.5, 15, 18.5], 7: [13.25, 17, 20.75],
+    8: [15, 19, 23], 9: [17, 21.25, 25.5], 10: [19, 23.5, 28], 11: [21.25, 26, 30.75],
+    12: [23.5, 28.5, 33.5], 13: [26, 31.25, 36.5], 14: [28.5, 34, 39.5], 15: [31.25, 37, 42.75],
+    16: [34, 40, 46], 17: [37, 43.25, 49.5], 18: [40, 46.5, 53], 19: [43.25, 50, 56.75],
+    20: [46.5, 53.5, 60.5], 21: [50, 57.25, 64.5], 22: [53.5, 61, 68.5], 23: [57.25, 65, 72.75],
+    24: [61, 69, 77], 25: [65, 73.25, 81.5], 26: [69, 77.5, 86], 27: [73.25, 82, 90.75],
+    28: [77.5, 86.5, 95.5], 29: [82, 91.25, 100.5], 30: [86.5, 96, 105.5], 31: [91.25, 101, 110.75],
+    32: [96, 106, 116]
+  };
+
+  var ratingChangeIndex = ratingRangeList.length - 1;
+  for (var i = 0; i < ratingRangeList.length; i++) {
+    if (ratingDiff <= ratingRangeList[i]) {
+      ratingChangeIndex = i;
+      break;
+    }
+  }
+
+  var ratingChangeDict = isExpected ? ratingChangeExpectedDict : ratingChangeUnexpectedDict;
+  var ratingChangeList = ratingChangeDict[ratingChangeIndex];
+  return isWinner ? ratingChangeList[gamesLeft] : -ratingChangeList[gamesLeft];
+}
+/**
+ * Club-kit rating engine (no-Python version).
+ *
+ * Replicates tt-ratings.py's flow using the spreadsheet itself as the
+ * player database instead of MongoDB:
+ *
+ *   updateRatingsFromSheet() - reads the active date sheet's scores,
+ *     reads current ratings from the Ratings sheet, computes ELO changes
+ *     via updateRating() (see CCTTC ELO.gs), and writes the results back
+ *     to the Ratings sheet and the date sheet's league columns.
+ *
+ * Ratings sheet layout (same as the current CCTTC sheet):
+ *   A = rank, B = player name, C = current rating, D = last-updated date.
+ */
+
+var RATINGS_SHEET_NAME = 'Ratings';
+
+var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
+var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
+var LEAGUE_RATING_RANGES = ['D3:F8', 'D20:F25', 'D37:F42'];
+var LEAGUE_START_ROWS = [3, 20, 37];
+
+function getCurrentRatings(sheet) {
+  var values = sheet.getRange('A2:D').getValues();
+  var ratings = {};
+  for (var i = 0; i < values.length; i++) {
+    var row = values[i];
+    var name = String(row[1]).trim();
+    if (!name || name === '') continue;
+    var rating = parseFloat(row[2]);
+    if (isNaN(rating)) continue;
+    ratings[name] = rating;
+  }
+  return ratings;
+}
+
+function parseScoresRow(row) {
+  // row is an array from I..U: [p1, '', p2, s1a, s1b, s2a, s2b, ...]
+  var p1Name = String(row[0]).trim();
+  var p2Name = String(row[2]).trim();
+  if (p1Name === '' || p2Name === '') return null;
+
+  var scoreDiffsP1 = [];
+  var scoreDiffsP2 = [];
+  var hasScores = false;
+  for (var k = 3; k + 1 < row.length; k += 2) {
+    var s1 = parseFloat(row[k]);
+    var s2 = parseFloat(row[k + 1]);
+    if (isNaN(s1) || isNaN(s2)) continue;
+    if (s1 === 0 && s2 === 0) continue;
+    hasScores = true;
+    scoreDiffsP1.push(s1 - s2);
+    scoreDiffsP2.push(s2 - s1);
+  }
+  if (!hasScores || scoreDiffsP1.length === 0) return null;
+
+  return {
+    p1: p1Name,
+    p2: p2Name,
+    p1Diffs: scoreDiffsP1,
+    p2Diffs: scoreDiffsP2
+  };
+}
+
+function updateRatingsFromSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  var sheetName = sheet.getName();
+  Logger.log('Engine start (v4-api) on sheet: ' + sheetName);
+
+  if (sheetName === RATINGS_SHEET_NAME || sheetName === 'Template') {
+    SpreadsheetApp.getUi().alert(
+      'Run this on a date sheet (e.g., 08-02-2026), not on the Ratings sheet.');
+    return;
+  }
+
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  if (!ratingsSheet) {
+    SpreadsheetApp.getUi().alert("Ratings sheet not found.");
+    return;
+  }
+
+  var currentRatings = getCurrentRatings(ratingsSheet);
+  var changes = {};       // name -> sum of ELO changes
+  var needsRating = {};   // players seen without a rating
+  var matchByRow = {};    // [league][rowIndex] -> {p1Change, p2Change}
+
+  for (var l = 0; l < 3; l++) {
+    var scoreValues = sheet.getRange(SCORE_RANGES[l]).getValues();
+    var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
+
+    for (var j = 0; j < scoreValues.length; j++) {
+      var parsed = parseScoresRow(scoreValues[j]);
+      if (!parsed) continue;
+
+      var p1Rating = currentRatings[parsed.p1];
+      var p2Rating = currentRatings[parsed.p2];
+      if (p1Rating === undefined) needsRating[parsed.p1] = true;
+      if (p2Rating === undefined) needsRating[parsed.p2] = true;
+      if (p1Rating === undefined || p2Rating === undefined) continue;
+
+      var newP1 = updateRating(p1Rating, p2Rating, parsed.p1Diffs);
+      var newP2 = updateRating(p2Rating, p1Rating, parsed.p2Diffs);
+
+      changes[parsed.p1] = (changes[parsed.p1] || 0) + (newP1 - p1Rating);
+      changes[parsed.p2] = (changes[parsed.p2] || 0) + (newP2 - p2Rating);
+      if (!matchByRow[l]) matchByRow[l] = {};
+      matchByRow[l][j] = {
+        p1Change: newP1 - p1Rating,
+        p2Change: newP2 - p2Rating
+      };
+    }
+
+    if (playerValues && playerValues.length > 0) {
+      Logger.log('League ' + (l + 1) + ' players: ' +
+        playerValues.filter(function (r) { return r[0] && String(r[0]).trim() !== ''; })
+          .map(function (r) { return String(r[0]).trim(); }).join(', '));
+    }
+  }
+
+  // Report unrated players (admin must type an initial rating, then re-run).
+  var unrated = Object.keys(needsRating);
+  if (unrated.length > 0) {
+    Logger.log('Players needing an initial rating in the Ratings sheet: ' + unrated.join(', '));
+  }
+
+  // Build updated ratings list.
+  var newRatings = {};
+  var allNames = {};
+  for (var name in currentRatings) allNames[name] = true;
+  for (var name in changes) allNames[name] = true;
+
+  for (var name in allNames) {
+    var base = currentRatings[name] !== undefined ? currentRatings[name] : null;
+    if (base === null) continue; // unrated player: skip until admin assigns a rating
+    // Ratings live on the USATT quarter-point scale. ELO changes are already
+    // 0.25 multiples, so this is normally a no-op; it only snaps ratings that
+    // were hand-entered off-grid (e.g. 1000.10 -> 1000.00).
+    newRatings[name] = roundQuarter(base + (changes[name] || 0));
+  }
+
+  // Sort descending by rating.
+  var sortedNames = Object.keys(newRatings).sort(function (a, b) {
+    return newRatings[b] - newRatings[a];
+  });
+
+  var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+
+  // Preserve existing D-column dates; only players whose rating actually
+  // changed this run get today's date (D = "last date the rating changed").
+  var existingDates = {};
+  var curValues = ratingsSheet.getRange('A2:D').getValues();
+  for (var ci = 0; ci < curValues.length; ci++) {
+    var cName = String(curValues[ci][1]).trim();
+    if (cName !== '') existingDates[cName] = curValues[ci][3];
+  }
+
+  // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
+  var outRows = [];
+  for (var i = 0; i < sortedNames.length; i++) {
+    var name = sortedNames[i];
+    var changed = (changes[name] || 0) !== 0;
+    var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
+    outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
+  }
+  if (outRows.length > 0) {
+    ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
+  }
+
+  // Resolve the date sheet's ID once for the API write (mirrors Python).
+  var sheetId = null;
+  if (typeof Sheets !== 'undefined') {
+    var sheetsMeta = Sheets.Spreadsheets.get(ss.getId()).sheets;
+    for (var si = 0; si < sheetsMeta.length; si++) {
+      if (sheetsMeta[si].properties.title === sheetName) {
+        sheetId = sheetsMeta[si].properties.sheetId;
+        break;
+      }
+    }
+  }
+
+  // Write per-league rating display on the date sheet (D/E/F columns).
+  for (var l = 0; l < 3; l++) {
+    var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
+    var leagueRows = [];
+    for (var j = 0; j < playerValues.length; j++) {
+      var name = String(playerValues[j][0]).trim();
+      if (name === '') {
+        leagueRows.push(['', '', '']);
+      } else if (newRatings[name] !== undefined) {
+        var oldVal = currentRatings[name] !== undefined ? currentRatings[name] : newRatings[name];
+        var diff = newRatings[name] - oldVal;
+        // Write old/new ratings and the diff as strings (2 decimals) so
+        // "1000.00" stays literal; each ends with one trailing '.' (colored to
+        // match the column background below) because trailing spaces get
+        // trimmed on Android and would break the right-justified alignment.
+        var dStr = oldVal.toFixed(2) + '.';
+        var diffStr = padDiff(diff);
+        var fStr = newRatings[name].toFixed(2) + '.';
+        leagueRows.push([dStr, diffStr, fStr]);
+      } else {
+        leagueRows.push(['', '', '']);
+      }
+    }
+    if (leagueRows.length > 0 && sheetId !== null) {
+      // Write D/E/F via the Sheets API updateCells with explicit stringValue,
+      // mirroring tt-ratings.py's set_new_ratings. Apps Script's setValues and
+      // setRichTextValues both parse a leading '+' as a formula (writing
+      // "=+22.50."); an explicit stringValue does not. The trailing '.' is
+      // colored #c9daf8 (the column background) via textFormatRuns so it is
+      // invisible but holds real width on every platform.
+      var blue = { red: 0.7882353, green: 0.85490197, blue: 0.972549 };
+      var rowsData = [];
+      for (var j = 0; j < leagueRows.length; j++) {
+        var cells = [];
+        for (var c = 0; c < 3; c++) {
+          var txt = leagueRows[j][c];
+          var cell = {
+            userEnteredValue: { stringValue: txt },
+            userEnteredFormat: {
+              numberFormat: { type: 'TEXT', pattern: '@' },
+              horizontalAlignment: 'RIGHT'
+            }
+          };
+          if (txt !== '') {
+            // Black run at index 0 keeps the visible text black (a lone dot run
+            // would bleed its color across the whole cell); the trailing '.' is
+            // then colored #c9daf8 so it is invisible against the background.
+            var runs = [{
+              startIndex: 0,
+              format: { foregroundColor: { red: 0, green: 0, blue: 0 } }
+            }];
+            if (txt.charAt(txt.length - 1) === '.') {
+              runs.push({
+                startIndex: txt.length - 1,
+                format: { foregroundColor: blue }
+              });
+            }
+            cell.textFormatRuns = runs;
+          }
+          cells.push(cell);
+        }
+        rowsData.push({ values: cells });
+      }
+      var startRow = LEAGUE_START_ROWS[l] - 1; // 0-indexed
+      var endRow = startRow + leagueRows.length;
+      Sheets.Spreadsheets.batchUpdate({
+        requests: [{
+          updateCells: {
+            range: {
+              sheetId: sheetId,
+              startRowIndex: startRow,
+              endRowIndex: endRow,
+              startColumnIndex: 3, // D
+              endColumnIndex: 6    // G exclusive
+            },
+            rows: rowsData,
+            fields: 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment'
+          }
+        }]
+      }, ss.getId());
+      // Diagnostic: confirm nothing in D/E/F came back as a formula ('=' prefix).
+      var check = sheet.getRange(LEAGUE_RATING_RANGES[l]).getValues();
+      for (var ci = 0; ci < check.length; ci++) {
+        for (var cj = 0; cj < check[ci].length; cj++) {
+          if (String(check[ci][cj]).charAt(0) === '=') {
+            Logger.log('Engine: WARNING - ' + LEAGUE_RATING_RANGES[l] + ' cell ' +
+              ci + ',' + cj + ' stored as formula: ' + check[ci][cj]);
+          }
+        }
+      }
+    } else if (typeof Sheets === 'undefined') {
+      SpreadsheetApp.getUi().alert(
+        'Enable the "Google Sheets API" advanced service first: in the Apps Script editor, ' +
+        'click + next to Services, add "Sheets", click Save, then run again.');
+      return;
+    }
+  }
+
+  // Write ELO change into column J (index 1) of each score row, and color the
+  // winner's name cell green (column I for a P1 win, column K for a P2 win).
+  // Only rows that actually carry game scores get a change; an empty row with
+  // the same player pair must NOT inherit another match's change.
+  for (var l = 0; l < 3; l++) {
+    var range = sheet.getRange(SCORE_RANGES[l]);
+    var values = range.getValues();
+    var bg = range.getBackgrounds();
+    for (var j = 0; j < values.length; j++) {
+      values[j][1] = '';            // clear stale ELO change first
+      // Clear any stale winner highlight on this row's name cells; a row with
+      // no winner this run must not stay green.
+      bg[j][0] = null;
+      bg[j][2] = null;
+      var rowHasScores = values[j].length > 4 &&
+        !isNaN(parseFloat(values[j][3])) && !isNaN(parseFloat(values[j][4]));
+      if (!rowHasScores) continue;
+      var mc = matchByRow[l] && matchByRow[l][j];
+      if (!mc) continue;
+      values[j][1] = round2(Math.abs(mc.p1Change)).toFixed(2);
+      if (mc.p1Change > 0) {
+        bg[j][0] = '#c5eec5';       // P1 won -> highlight their name cell
+      } else if (mc.p2Change > 0) {
+        bg[j][2] = '#c5eec5';       // P2 won -> highlight their name cell
+      }
+    }
+    range.setValues(values);
+    range.setBackgrounds(bg);
+  }
+
+  Logger.log('Engine updateRatingsFromSheet complete.');
+  ss.toast('Ratings updated for ' + sortedNames.length + ' players.', 'Done', 3);
+
+  if (unrated.length > 0) {
+    SpreadsheetApp.getUi().alert(
+      'These players had no rating and were skipped (add a rating to the Ratings sheet, then run again):\n' +
+      unrated.join(', '));
+  }
+}
+
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+
+function roundQuarter(v) {
+  // Snap to the USATT quarter-point scale (x.00/.25/.50/.75).
+  return Math.round(v * 4) / 4;
+}
+
+function padDiff(diff) {
+  // '+X.XX.' for increase, '-X.XX.' for decrease, '0.00.' for no change. The
+  // trailing '.' is colored to match the column background (see caller) so it
+  // is invisible but occupies real width (trailing spaces get trimmed).
+  var sign = diff > 0 ? '+' : '';
+  return sign + round2(diff).toFixed(2) + '.';
+}
+/**
+ * Annual USATT alignment for the club-kit spreadsheet.
+ *
+ * Every January 1st (set up as a time-driven trigger), this script nudges all
+ * club ratings toward the official USATT ratings of players who have them, so
+ * that the club scale matches the USATT scale.
+ *
+ * How it works:
+ *   1. For each player with an Official USATT Rating (column E) whose Rating
+ *      Date (column F) is NOT stale (default: within 2 years), compute
+ *      (club rating - official rating).
+ *   2. Take the mean of those differences.
+ *   3. Shift EVERY player's club rating by that mean so official-rated players
+ *      land as close as possible to their official rating (mean = least-squares
+ *      optimal offset).
+ *   4. Requires at least 3 valid official ratings; otherwise it skips and logs.
+ *   5. Writes the result to an "Alignment Log" sheet for review/revert.
+ *
+ * Ratings sheet columns:
+ *   A=rank  B=name  C=club rating  D=last updated  E=official USATT rating
+ *   F=USATT rating date (the date the rating was ACHIEVED, not entered)
+ *
+ * Staleness: a rating older than SETUP staleness years is VOID. It is NOT
+ * deleted - it stays in the sheet but turns RED. Valid ratings are GREEN.
+ */
+
+var ALIGN_RATINGS_SHEET = 'Ratings';
+var ALIGN_LOG_SHEET = 'Alignment Log';
+var ALIGN_DEFAULT_STALENESS_YEARS = 2;
+
+function alignToUSATT() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(ALIGN_RATINGS_SHEET);
+  if (!sheet) {
+    Logger.log('Ratings sheet not found; alignment aborted.');
+    return;
+  }
+
+  var stalenessYears = getSetupValue(ss, 'USATT staleness (years)', ALIGN_DEFAULT_STALENESS_YEARS);
+
+  var values = sheet.getRange('B2:F').getValues();
+  var rows = [];      // {name, club, official, date}
+  var validCount = 0;
+
+  for (var i = 0; i < values.length; i++) {
+    var name = String(values[i][0]).trim();
+    if (name === '') break;
+    var club = parseFloat(values[i][1]);
+    var official = parseFloat(values[i][3]);
+    var dateRaw = values[i][4];
+
+    if (isNaN(club)) continue;
+
+    if (!isNaN(official)) {
+      var d = parseDate(dateRaw);
+      var isStale = isDateStale(d, stalenessYears);
+      rows.push({ row: i + 2, name: name, club: club, official: official, date: d, stale: isStale });
+      if (!isStale) validCount++;
+    } else {
+      rows.push({ row: i + 2, name: name, club: club, official: null, stale: false });
+    }
+  }
+
+  // Color the official-rating column: green = valid, red = stale.
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].official === null) continue;
+    var color = rows[i].stale ? '#ea9999' : '#b6d7a8';
+    sheet.getRange('E' + rows[i].row).setBackground(color);
+    sheet.getRange('F' + rows[i].row).setFontColor(rows[i].stale ? '#cc0000' : '#000000');
+  }
+
+  // Refresh column E/F header labels and date-column validation note.
+  sheet.getRange('E1').setValue('Official USATT Rating');
+  sheet.getRange('F1').setValue('USATT Rating Date');
+  sheet.getRange('E1:F1').setFontWeight('bold');
+  var note = sheet.getRange('F2');
+  note.setNote('Enter the date this USATT rating was ACHIEVED (not the date it was submitted). '
+    + 'Ratings older than ' + stalenessYears + ' years turn red and are excluded from the annual USATT alignment.');
+
+  if (validCount < 3) {
+    var msg = 'Alignment skipped: only ' + validCount + ' player(s) with a valid (non-stale) official rating. Need at least 3.';
+    Logger.log(msg);
+    appendLog(ss, new Date(), null, 'SKIPPED', msg);
+    ss.toast(msg, 'USATT Alignment', 5);
+    return;
+  }
+
+  // Mean of (club - official) over valid players.
+  var totalDiff = 0;
+  var validNames = [];
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].official !== null && !rows[i].stale) {
+      totalDiff += (rows[i].club - rows[i].official);
+      validNames.push(rows[i].name);
+    }
+  }
+  var offset = totalDiff / validCount;
+
+  // Apply the shift to every club rating (including unrated-official players).
+  var todayStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+  for (var i = 0; i < rows.length; i++) {
+    if (isNaN(rows[i].club)) continue;
+    // USATT ratings live on a quarter-point scale (x.00/.25/.50/.75), so round
+    // every aligned rating to the nearest quarter.
+    var newRating = roundQuarter(rows[i].club - offset);
+    sheet.getRange('C' + rows[i].row).setValue(newRating);
+    sheet.getRange('D' + rows[i].row).setValue(todayStr);
+  }
+
+  var applied = -offset;
+  var summary = 'Applied USATT alignment offset of ' + round2(offset) +
+    ' (' + (applied < 0 ? '' : '+') + round2(applied) + ' to every rating, rounded to the nearest 0.25). ' +
+    'Based on ' + validCount + ' valid official rating(s): ' + validNames.join(', ');
+  Logger.log(summary);
+  appendLog(ss, new Date(), round2(offset), 'APPLIED', summary);
+  ss.toast('USATT alignment applied (offset ' + round2(-offset) + ').', 'Done', 5);
+}
+
+function isDateStale(date, stalenessYears) {
+  if (!date) return true; // no date = treat as stale/unreliable
+  var limit = new Date();
+  limit.setFullYear(limit.getFullYear() - stalenessYears);
+  return date < limit;
+}
+
+function parseDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  var s = String(v).trim();
+  // Expect MM-DD-YYYY or MM/DD/YYYY or a Date serial.
+  var m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) {
+    return new Date(parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+  }
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function getSetupValue(ss, key, fallback) {
+  var sheet = ss.getSheetByName('Setup');
+  if (!sheet) return fallback;
+  var values = sheet.getDataRange().getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0] && String(values[i][0]).trim().toLowerCase() === String(key).toLowerCase()) {
+      var parsed = parseFloat(values[i][1]);
+      return isNaN(parsed) ? fallback : parsed;
+    }
+  }
+  return fallback;
+}
+
+function appendLog(ss, date, offset, status, message) {
+  var sheet = ss.getSheetByName(ALIGN_LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(ALIGN_LOG_SHEET);
+    sheet.appendRow(['Date', 'Offset applied', 'Status', 'Details']);
+    sheet.getRange('1:1').setFontWeight('bold');
+  }
+  sheet.appendRow([
+    Utilities.formatDate(date, ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy HH:mm'),
+    offset === null ? '' : offset,
+    status,
+    message
+  ]);
+}
+
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+
+function roundQuarter(v) {
+  // Round to the nearest 0.25 so ratings stay on the USATT quarter-point scale.
+  return Math.round(v * 4) / 4;
+}
+
+/**
+ * ---- Player Ratings script (roster/leaderboard: hide/show inactive,
+ * winners, tiebreakers, new score sheet) ----
+ */
+
+function hideInactivePlayers() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Ratings");
+  var playerNames = sheet.getRange("B2:B").getValues();
+  sheet.showRows(2, playerNames.length);
+
+  // Column D = the last date a player's rating changed, maintained by the
+  // weekly/ad-hoc Python runs (tt-ratings.py). Hide anyone who has never been
+  // dated or whose date is older than the 90-day (3 month) window. Contiguous
+  // hidden rows are hidden in single hideRows(start, numRows) calls — calling
+  // hideRows once per row is what makes the button slow.
+  var dateValues = sheet.getRange("D2:D").getValues();
+  var today = new Date();
+  var cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 90);
+
+  var hideStart = -1;
+  var hideCount = 0;
+  for (var i = 0; i < playerNames.length; ++i) {
+    if (String(playerNames[i][0]).trim() === "") {
+      break;
+    }
+    var lastDate = parseDateValue(dateValues[i][0]);
+    var shouldHide = !lastDate || lastDate < cutoff;
+    if (shouldHide) {
+      if (hideStart === -1) hideStart = i + 2;
+      hideCount++;
+    } else if (hideStart !== -1) {
+      sheet.hideRows(hideStart, hideCount);
+      hideStart = -1;
+      hideCount = 0;
+    }
+  }
+  if (hideStart !== -1) {
+    sheet.hideRows(hideStart, hideCount);
+  }
+}
+
+function parseDateValue(v) {
+  if (v instanceof Date) return v;
+  var s = String(v).trim();
+  if (s === "") return null;
+  var m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (m) return new Date(parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function showInactivePlayers() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Ratings");
+  var playerNames = sheet.getRange("B2:B").getValues();
+  var rowCount = 0;
+  for (var i = 0; i < playerNames.length; i++) {
+    if (playerNames[i][0] === "") {
+      break;
+    }
+    rowCount++;
+  }
+  if (rowCount > 0) {
+    sheet.showRows(2, rowCount);
+  }
+}
+
+function newScoreSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var template_sheet = ss.getSheetByName("Template");
+  var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
+  var sysRulesSheet = ss.getSheetByName("System/Rules");
+  var insertIndex = sysRulesSheet ? sysRulesSheet.getIndex() : ss.getSheets().length;
+  var sheet = ss.insertSheet(date_str, insertIndex, {template: template_sheet});
+  ["E3:E8", "E20:E25", "E37:E42"].forEach(function(r) {
+    sheet.getRange(r).setNumberFormat("@");
+  });
+}
+
+class Player {
+  constructor(name) {
+    this.name = name;
+    this.won_games = 0;
+    this.won_against = [];
+    this.match_diffs = {};
+    this.scores_w = {};
+    this.scores_l = {};
+  }
+}
+
+function tiebreaker(player_list) {
+  if (player_list.length == 2) {
+    Logger.log("Two way tiebreak.")
+    if (player_list[0].won_against.includes(player_list[1].name)) {
+      return [player_list[0], player_list[1]];
+    } else if (player_list[1].won_against.includes(player_list[0].name)) {
+      return [player_list[1], player_list[0]];
+    } else {
+      Logger.log("check scores");
+      var p1_w_total = player_list[0].scores_w[player_list[1].name].reduce((a, b) => a + b, 0);
+      var p1_l_total = player_list[0].scores_l[player_list[1].name].reduce((a, b) => a + b, 0);
+      var p2_w_total = player_list[1].scores_w[player_list[0].name].reduce((a, b) => a + b, 0);
+      var p2_l_total = player_list[1].scores_l[player_list[0].name].reduce((a, b) => a + b, 0);
+      var p1_check = p1_w_total / p1_l_total;
+      var p2_check = p2_w_total / p2_l_total;
+      Logger.log(player_list[0].name + " = " + p1_w_total + " / " + p1_l_total + " = " + p1_check);
+      Logger.log(player_list[1].name + " = " + p2_w_total + " / " + p2_l_total + " = " + p2_check);
+      if (p1_check > p2_check) {
+        return [player_list[0], player_list[1]];
+      } else {
+        return [player_list[1], player_list[0]];
+      }
+    }
+  } else if (player_list.length == 3) {
+    Logger.log("Three way tiebreak - using game differential");
+    var game_diffs = [];
+    for (var i = 0; i < player_list.length; i++) {
+      var player = player_list[i];
+      var games_won = 0;
+      var games_lost = 0;
+      var points_won = 0;
+      var points_lost = 0;
+      var opponents = Object.keys(player.scores_w);
+      for (var j = 0; j < opponents.length; j++) {
+        var opponent = opponents[j];
+        if (player.scores_w[opponent]) {
+          games_won += player.scores_w[opponent].length;
+          points_won += player.scores_w[opponent].reduce((a, b) => a + b, 0);
+        }
+        if (player.scores_l[opponent]) {
+          games_lost += player.scores_l[opponent].length;
+          points_lost += player.scores_l[opponent].reduce((a, b) => a + b, 0);
+        }
+      }
+      var game_diff = games_won - games_lost;
+      var point_diff = points_won - points_lost;
+      Logger.log(player.name + ": " + games_won + " games won - " + games_lost + " games lost = " + game_diff + " differential");
+      Logger.log("  Points: " + points_won + " won - " + points_lost + " lost = " + point_diff + " differential");
+      game_diffs.push({
+        player: player,
+        game_diff: game_diff,
+        point_diff: point_diff
+      });
+    }
+    game_diffs.sort(function(a, b) {
+      if (a.game_diff !== b.game_diff) {
+        return b.game_diff - a.game_diff;
+      }
+      return b.point_diff - a.point_diff;
+    });
+    Logger.log("Final order after tiebreaker:");
+    for (var i = 0; i < game_diffs.length; i++) {
+      Logger.log("  " + (i+1) + ". " + game_diffs[i].player.name + " (game diff: " + game_diffs[i].game_diff + ", point diff: " + game_diffs[i].point_diff + ")");
+    }
+    return game_diffs.map(function(item) { return item.player; });
+  }
+}
+
+function findMatchWinner(scores) {
+  var p1_win_count = 0;
+  var p2_win_count = 0;
+  var p1_scores_w = [];
+  var p1_scores_l = [];
+  var p2_scores_w = [];
+  var p2_scores_l = [];
+  var p1vp2_score_diffs = [];
+  var p2vp1_score_diffs = [];
+
+  for (var i = 0; i < scores.length / 2; ++i) {
+    var p1_col = i * 2;
+    var p2_col = p1_col + 1;
+
+    if (p2_col >= scores.length) {
+      break;
+    }
+
+    var p1_score = scores[p1_col];
+    var p2_score = scores[p2_col];
+
+    if (typeof p1_score !== 'number' || typeof p2_score !== 'number') {
+      continue;
+    }
+
+    if (p1_score === 0 && p2_score === 0) {
+      continue;
+    }
+
+    var score_diff = p1_score - p2_score;
+    if (score_diff > 0) {
+      ++p1_win_count;
+    } else if (score_diff < 0) {
+      ++p2_win_count;
+    }
+
+    p1_scores_w.push(p1_score);
+    p1_scores_l.push(p2_score);
+    p2_scores_w.push(p2_score);
+    p2_scores_l.push(p1_score);
+    p1vp2_score_diffs.push(score_diff);
+    p2vp1_score_diffs.push(-score_diff);
+  }
+
+  winner_id = -1;
+  if (p1_win_count > p2_win_count) {
+    winner_id = 1;
+  } else if (p1_win_count < p2_win_count) {
+    winner_id = 2;
+  } else if (p1_win_count == 0 && p2_win_count == 0) {
+    winner_id = 0;
+  } else {
+    winner_id = 3;
+  }
+  return [winner_id, p1vp2_score_diffs, p1_scores_w, p1_scores_l, p2vp1_score_diffs, p2_scores_w, p2_scores_l]
+}
+
+function findWinners() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet();
+    var sheetName = sheet.getName();
+
+    if (sheetName === "Ratings" || sheetName === "Template") {
+      var sheets = ss.getSheets();
+      var datePattern = /^\d{2}-\d{2}-\d{4}$/;
+      var dateSheets = [];
+
+      for (var i = 0; i < sheets.length; i++) {
+        if (datePattern.test(sheets[i].getName())) {
+          dateSheets.push(sheets[i].getName());
+        }
+      }
+
+      if (dateSheets.length > 0) {
+        dateSheets.sort();
+        sheetName = dateSheets[dateSheets.length - 1];
+        sheet = ss.getSheetByName(sheetName);
+        SpreadsheetApp.setActiveSheet(sheet);
+      } else {
+        SpreadsheetApp.getUi().alert("Please run this on a date sheet (e.g., 10-21-2025), not on the Ratings sheet.");
+        return;
+      }
+    }
+
+    SpreadsheetApp.getActiveSpreadsheet().toast('Finding winners for sheet: ' + sheetName, 'Processing', 3);
+
+  var player_list = sheet.getRangeList(["C3:C8", "C20:C25", "C37:C42"]).getRanges();
+  var league_results = {};
+  for (var i = 0; i < 3; ++i) {
+    var results = {};
+    var player_names = player_list[i].getValues();
+    for (var j = 0; j < 6; j++) {
+      if (player_names[j][0]) {
+        var name = String(player_names[j][0]).trim();
+        if (name !== "") {
+          results[name] = new Player(name);
+        }
+      }
+    }
+    league_results[i] = results;
+    Logger.log("League " + (i+1) + " players: " + Object.keys(results).join(", "));
+  }
+
+  var score_list = sheet.getRangeList(["I3:U17", "I20:U34", "I37:U51"]).getRanges();
+
+  // Decide which rows are official round-robin matches for each league. Extra
+  // matches (rematches, or matches against guests/players outside the league)
+  // must NOT affect the winner or tiebreakers.
+  //
+  //   - 4+ players: single round robin, each pair once (N*(N-1)/2 matches).
+  //     Incomplete matches are skipped individually; the round is not voided.
+  //   - 3 players: players play multiple rounds (each pair once per round).
+  //     A round counts only if every match in it was completed; a partial
+  //     round is ignored entirely.
+  //
+  // Players who appear only once in the score rows (guests) are excluded from
+  // the league roster so they can't affect the round-robin structure.
+  function rowHasScores(match_scores) {
+    for (var k = 3; k < match_scores.length; k++) {
+      if (typeof match_scores[k] === "number") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  var appearance_counts = [{}, {}, {}];
+  for (var i = 0; i < 3; ++i) {
+    var appearance_rows = score_list[i].getValues();
+    for (var j = 0; j < 15; ++j) {
+      var appearance_row = appearance_rows[j];
+      if (!appearance_row[0] || !appearance_row[2]) {
+        continue;
+      }
+      var a1 = String(appearance_row[0]).trim();
+      var a2 = String(appearance_row[2]).trim();
+      if (a1 === "" || a2 === "") {
+        continue;
+      }
+      appearance_counts[i][a1] = (appearance_counts[i][a1] || 0) + 1;
+      appearance_counts[i][a2] = (appearance_counts[i][a2] || 0) + 1;
+    }
+  }
+
+  var count_row = [[], [], []];
+  for (var i = 0; i < 3; ++i) {
+    var league_names = Object.keys(league_results[i]);
+    var has_guests = league_names.length >= 3;
+    var league_players = [];
+    for (var n = 0; n < league_names.length; ++n) {
+      var appearances = appearance_counts[i][league_names[n]] || 0;
+      if (!has_guests || appearances >= 2) {
+        league_players.push(league_names[n]);
+      }
+    }
+    Logger.log("League " + (i+1) + " players: " + league_players.join(", "));
+
+    var league_scores = score_list[i].getValues();
+
+    if (league_players.length == 3) {
+      // Multi-round (3 players): each pair once per round. Only complete
+      // rounds count toward the winner.
+      var pair_occ = {};
+      var pair_occ_scores = {};
+      var row_info = [];
+      for (var j = 0; j < 15; ++j) {
+        var ms = league_scores[j];
+        if (!ms[0] || !ms[2]) continue;
+        var n1 = String(ms[0]).trim();
+        var n2 = String(ms[2]).trim();
+        if (n1 === "" || n2 === "") continue;
+        if (n1 === n2) continue;
+        if (league_players.indexOf(n1) < 0 || league_players.indexOf(n2) < 0) continue;
+        var pk = n1 < n2 ? n1 + "|" + n2 : n2 + "|" + n1;
+        var occ = (pair_occ[pk] || 0) + 1;
+        pair_occ[pk] = occ;
+        pair_occ_scores[pk + "|" + occ] = rowHasScores(ms);
+        row_info[j] = { pk: pk, occ: occ };
+      }
+      var complete_rounds = {};
+      var max_rounds = 0;
+      for (var pk in pair_occ) {
+        max_rounds = Math.max(max_rounds, pair_occ[pk]);
+      }
+      for (var r = 1; r <= max_rounds; ++r) {
+        var all_complete = true;
+        for (var pk in pair_occ) {
+          if (pair_occ_scores[pk + "|" + r] !== true) {
+            all_complete = false;
+            break;
+          }
+        }
+        if (all_complete) {
+          complete_rounds[r] = true;
+        }
+        Logger.log("League " + (i+1) + ": round " + r + (all_complete ? " complete" : " incomplete - ignored"));
+      }
+      for (var j = 0; j < 15; ++j) {
+        count_row[i][j] = !!(row_info[j] && complete_rounds[row_info[j].occ]);
+      }
+    } else {
+      // Single round robin: each pair once, capped at N*(N-1)/2. Incomplete
+      // matches are skipped individually (round not voided).
+      var rr_cap = league_players.length * (league_players.length - 1) / 2;
+      var seen = {};
+      var rr_count = 0;
+      for (var j = 0; j < 15; ++j) {
+        var ms = league_scores[j];
+        if (!ms[0] || !ms[2]) continue;
+        var n1 = String(ms[0]).trim();
+        var n2 = String(ms[2]).trim();
+        if (n1 === "" || n2 === "") continue;
+        if (n1 === n2) continue;
+        if (league_players.indexOf(n1) < 0 || league_players.indexOf(n2) < 0) continue;
+        var pk = n1 < n2 ? n1 + "|" + n2 : n2 + "|" + n1;
+        if (seen[pk]) continue;
+        seen[pk] = true;
+        if (!rowHasScores(ms)) continue;
+        if (rr_count >= rr_cap) continue;
+        rr_count++;
+        count_row[i][j] = true;
+      }
+      Logger.log("League " + (i+1) + ": round-robin size " + rr_cap + ", " + rr_count + " matches counted");
+    }
+  }
+  for (var i = 0; i < 3; ++i) {
+    var base_index = i * 17 + 3;
+    sheet.getRange(base_index, 7, 15, 2).setBackground("#d9d9d9");
+
+    var league_scores = score_list[i].getValues();
+    for (var j = 0; j < 15; ++j) {
+      var match_scores = league_scores[j];
+      if (!match_scores[0] || !match_scores[2]) {
+        continue;
+      }
+      var p1_name = String(match_scores[0]).trim();
+      var p2_name = String(match_scores[2]).trim();
+
+      if (p1_name === "" || p2_name === "") {
+        continue;
+      }
+
+      if (!league_results[i][p1_name] || !league_results[i][p2_name]) {
+        Logger.log("Warning: Player not found in league " + i + ": '" + p1_name + "' or '" + p2_name + "'");
+        Logger.log("Available players: " + Object.keys(league_results[i]).join(", "));
+        continue;
+      }
+
+      // Only count rows that are part of the official round-robin schedule
+      // (rematches, guest matches, incomplete rounds are excluded above).
+      if (!count_row[i][j]) {
+        Logger.log("Non round-robin match ignored: " + p1_name + " vs " + p2_name);
+        continue;
+      }
+
+      var scores_only = [];
+      for (var k = 3; k < match_scores.length; k++) {
+        var value = match_scores[k];
+        if (typeof value === "number" && value >= 0) {
+          scores_only.push(value);
+        } else if (value === "" || value === null || value === undefined) {
+          if (scores_only.length % 2 === 1) {
+            scores_only.push(0);
+          }
+          if (k + 1 < match_scores.length) {
+            var nextValue = match_scores[k + 1];
+            if (nextValue === "" || nextValue === null || nextValue === undefined) {
+              break;
+            }
+          }
+        }
+      }
+
+      if (scores_only.length == 0) {
+        Logger.log("No scores found for " + p1_name + " vs " + p2_name);
+        continue;
+      }
+
+      if (scores_only.length % 2 !== 0) {
+        Logger.log("Warning: Odd number of scores for " + p1_name + " vs " + p2_name + ": " + scores_only.length + " scores");
+        scores_only.pop();
+      }
+
+      var [winner_id, p1vp2_score_diffs, p1_scores_w, p1_scores_l, p2vp1_score_diffs, p2_scores_w, p2_scores_l] =
+          findMatchWinner(scores_only);
+
+      Logger.log("Match " + (j+1) + ": " + p1_name + " vs " + p2_name + " - Winner ID: " + winner_id + ", Scores: " + scores_only.join(","));
+
+      if (winner_id == 1) {
+        ++league_results[i][p1_name].won_games;
+        league_results[i][p1_name].won_against.push(p2_name);
+        sheet.getRange(base_index + j, 7).setBackground("#ea9999");
+        Logger.log("  -> " + p1_name + " wins (highlighting G" + (base_index + j) + ")");
+      } else if (winner_id == 2) {
+        ++league_results[i][p2_name].won_games;
+        league_results[i][p2_name].won_against.push(p1_name);
+        sheet.getRange(base_index + j, 8).setBackground("#ea9999");
+        Logger.log("  -> " + p2_name + " wins (highlighting H" + (base_index + j) + ")");
+      } else if (winner_id == 3) {
+        sheet.getRange(base_index + j, 7).setBackground("#b3a7d7");
+        sheet.getRange(base_index + j, 8).setBackground("#b3a7d7");
+        Logger.log("  -> Tie (highlighting G" + (base_index + j) + " and H" + (base_index + j) + ")");
+      } else {
+        Logger.log("  -> No winner determined (winner_id = " + winner_id + ")");
+      }
+
+      league_results[i][p1_name].match_diffs[p2_name] = p1vp2_score_diffs;
+      league_results[i][p2_name].match_diffs[p1_name] = p2vp1_score_diffs;
+      league_results[i][p1_name].scores_w[p2_name] = p1_scores_w;
+      league_results[i][p1_name].scores_l[p2_name] = p1_scores_l;
+      league_results[i][p2_name].scores_w[p1_name] = p2_scores_w;
+      league_results[i][p2_name].scores_l[p1_name] = p2_scores_l;
+    }
+  }
+
+  for (var i = 0; i < 3; i++) {
+    var winner = null;
+    var player_names = Object.keys(league_results[i]);
+    var ties = [];
+
+    Logger.log("League " + (i+1) + " results:");
+    for (var j = 0; j < player_names.length; ++j) {
+      Logger.log("  " + player_names[j] + ": " + league_results[i][player_names[j]].won_games + " wins");
+    }
+
+    var max_wins = -1;
+    for (var j = 0; j < player_names.length; ++j) {
+      var name = player_names[j];
+      var wins = league_results[i][name].won_games;
+
+      if (wins > max_wins) {
+        max_wins = wins;
+        winner = league_results[i][name];
+        ties = [];
+      } else if (wins == max_wins && max_wins > 0) {
+        if (ties.length == 0 && winner != null) {
+          ties.push(winner);
+        }
+        ties.push(league_results[i][name]);
+      }
+    }
+
+    var sorted_players = null;
+    if (ties.length > 1) {
+      Logger.log("Tie detected with " + ties.length + " players at " + max_wins + " wins");
+      sorted_players = tiebreaker(ties);
+      winner = sorted_players[0];
+    }
+
+    if (winner == null || winner.won_games == 0) {
+      Logger.log("No winner found for league " + (i+1));
+      continue;
+    }
+
+    var range, ties_range;
+    if (i == 0) {
+      range = "D9";
+      ties_range = "D10:D11";
+    } else if (i == 1) {
+      range = "D26";
+      ties_range = "D27:D28";
+    } else {
+      range = "D43";
+      ties_range = "D44:D45";
+    }
+
+    Logger.log("League " + (i+1) + " winner: " + winner.name);
+    sheet.getRange(range).setValue(winner.name);
+
+    if (sorted_players != null && sorted_players.length > 1) {
+      var ties_names = [];
+      for (var j = 1; j < 3; ++j) {
+        if (j < sorted_players.length) {
+          ties_names.push([sorted_players[j].name]);
+        } else {
+          ties_names.push([""]);
+        }
+      }
+      sheet.getRange(ties_range).setValues(ties_names);
+    } else {
+      sheet.getRange(ties_range).clearContent();
+    }
+  }
+
+  SpreadsheetApp.getActiveSpreadsheet().toast('Winners found and highlighted!', 'Complete', 3);
+
+  } catch (error) {
+    Logger.log("Error in findWinners: " + error.toString());
+    SpreadsheetApp.getActiveSpreadsheet().toast('Error: ' + error.toString(), 'Error', 10);
+    throw error;
+  }
+}
+
+function findWinnersForDate(dateString) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(dateString);
+
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("Sheet '" + dateString + "' not found!");
+    return;
+  }
+
+  SpreadsheetApp.setActiveSheet(sheet);
+  findWinners();
+}

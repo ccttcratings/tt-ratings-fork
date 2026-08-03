@@ -705,6 +705,21 @@ class GoogleSheet():
             all_player_ratings = []
             league_player_ratings = {}
             ranking = 0
+
+            # Read existing D-column dates so players whose rating did not change
+            # keep their current date (D = "last date the rating changed").
+            if self.sheet is None:
+                self.get_sheet()
+            existing_dates = {}
+            try:
+                existing_result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID,
+                                                          range=self.PLAYERS_RANGE).execute()
+                for r in existing_result.get('values', []):
+                    if r and r[0]:
+                        existing_dates[str(r[0]).strip()] = r[2] if len(r) > 2 else ''
+            except HttpError:
+                existing_dates = {}
+
             for k, v in new_ratings.items():
                 if k in self.all_players:
                     try:
@@ -727,11 +742,11 @@ class GoogleSheet():
                     league_player_ratings[k] = [f'{before_rating:.2f}.', padded_diff, f'{v[0]:.2f}.']
 
                 ranking += 1
-                active_player = True
-                if (datetime.strptime(self.date_str, '%m-%d-%Y').replace(hour=14) - v[1]).days > active_days:
-                    active_player = False
-                all_player_ratings.append([ranking, k, v[0], ''])
-                print(f'{k}     active:{active_player}')
+                if k in rating_increased or k in rating_decreased:
+                    d = self.date_str
+                else:
+                    d = existing_dates.get(k, '')
+                all_player_ratings.append([ranking, k, v[0], d])
 
             # Update player ratings in league sheets
             for l in self.players_per_league:
@@ -1417,7 +1432,27 @@ def update_database_from_sheet(date_str, google_cred, active_days, execute, prin
         # Re-sort the sheet by rating (highest first)
         print('Re-sorting player ratings on the sheet...')
         sorted_players = sorted(league_scores.items(), key=lambda x: x[1][0], reverse=True)
-        all_player_ratings = [[i + 1, name, rating, ''] for i, (name, (rating, _)) in enumerate(sorted_players)]
+
+        # Preserve existing D-column dates; only players whose rating changed
+        # (per rating_increased/decreased) get today's date. Name/email-only
+        # changes leave the rating date untouched.
+        existing_dates = {}
+        try:
+            existing_result = google_sheet.sheet.values().get(
+                spreadsheetId=google_sheet.SPREADSHEET_ID,
+                range='Ratings!B2:D').execute()
+            for r in existing_result.get('values', []):
+                if r and r[0]:
+                    existing_dates[str(r[0]).strip()] = r[2] if len(r) > 2 else ''
+        except HttpError:
+            existing_dates = {}
+        all_player_ratings = []
+        for i, (name, (rating, _)) in enumerate(sorted_players):
+            if name in rating_increased or name in rating_decreased:
+                d = date_str
+            else:
+                d = existing_dates.get(name, '')
+            all_player_ratings.append([i + 1, name, rating, d])
 
         google_sheet.get_sheet()
         google_sheet.sheet.values().clear(

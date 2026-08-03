@@ -146,10 +146,22 @@ function updateRatingsFromSheet() {
 
   var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
 
+  // Preserve existing D-column dates; only players whose rating actually
+  // changed this run get today's date (D = "last date the rating changed").
+  var existingDates = {};
+  var curValues = ratingsSheet.getRange('A2:D').getValues();
+  for (var ci = 0; ci < curValues.length; ci++) {
+    var cName = String(curValues[ci][1]).trim();
+    if (cName !== '') existingDates[cName] = curValues[ci][3];
+  }
+
   // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
   var outRows = [];
   for (var i = 0; i < sortedNames.length; i++) {
-    outRows.push([i + 1, sortedNames[i], round2(newRatings[sortedNames[i]]), today]);
+    var name = sortedNames[i];
+    var changed = (changes[name] || 0) !== 0;
+    var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
+    outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
   }
   if (outRows.length > 0) {
     ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
