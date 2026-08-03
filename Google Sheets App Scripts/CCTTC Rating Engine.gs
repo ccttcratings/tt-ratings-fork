@@ -66,7 +66,7 @@ function updateRatingsFromSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var sheetName = sheet.getName();
-  Logger.log('Engine start (v-f1624e2) on sheet: ' + sheetName);
+  Logger.log('Engine start (v4-api) on sheet: ' + sheetName);
 
   if (sheetName === RATINGS_SHEET_NAME || sheetName === 'Template') {
     SpreadsheetApp.getUi().alert(
@@ -155,6 +155,18 @@ function updateRatingsFromSheet() {
     ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
   }
 
+  // Resolve the date sheet's ID once for the API write (mirrors Python).
+  var sheetId = null;
+  if (typeof Sheets !== 'undefined') {
+    var sheetsMeta = Sheets.Spreadsheets.get(ss.getId()).sheets;
+    for (var si = 0; si < sheetsMeta.length; si++) {
+      if (sheetsMeta[si].properties.title === sheetName) {
+        sheetId = sheetsMeta[si].properties.sheetId;
+        break;
+      }
+    }
+  }
+
   // Write per-league rating display on the date sheet (D/E/F columns).
   for (var l = 0; l < 3; l++) {
     var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
@@ -178,33 +190,55 @@ function updateRatingsFromSheet() {
         leagueRows.push(['', '', '']);
       }
     }
-    if (leagueRows.length > 0) {
-      var dRange = sheet.getRange(LEAGUE_RATING_RANGES[l]);
-      dRange.setNumberFormat('@');
-      // Write D/E/F as rich text so '+'-prefixed strings (e.g. "+1000.50") are
-      // stored as plain text and never parsed as formulas by setValues. The
-      // trailing '.' is colored #c9daf8 (the column background) so it is
+    if (leagueRows.length > 0 && sheetId !== null) {
+      // Write D/E/F via the Sheets API updateCells with explicit stringValue,
+      // mirroring tt-ratings.py's set_new_ratings. Apps Script's setValues and
+      // setRichTextValues both parse a leading '+' as a formula (writing
+      // "=+22.50."); an explicit stringValue does not. The trailing '.' is
+      // colored #c9daf8 (the column background) via textFormatRuns so it is
       // invisible but holds real width on every platform.
-      var richRows = [];
+      var blue = { red: 0.7882353, green: 0.85490197, blue: 0.972549 };
+      var rowsData = [];
       for (var j = 0; j < leagueRows.length; j++) {
-        var richRow = [];
+        var cells = [];
         for (var c = 0; c < 3; c++) {
           var txt = leagueRows[j][c];
-          var builder = SpreadsheetApp.newRichTextValue().setText(txt);
+          var cell = {
+            userEnteredValue: { stringValue: txt },
+            userEnteredFormat: {
+              numberFormat: { type: 'TEXT', pattern: '@' },
+              horizontalAlignment: 'RIGHT'
+            }
+          };
           if (txt.charAt(txt.length - 1) === '.') {
-            var dotStyle = SpreadsheetApp.newTextStyle().setForegroundColor('#c9daf8').build();
-            builder.setTextStyle(txt.length - 1, txt.length, dotStyle);
+            cell.textFormatRuns = [{
+              startIndex: txt.length - 1,
+              format: { foregroundColor: blue }
+            }];
           }
-          richRow.push(builder.build());
+          cells.push(cell);
         }
-        richRows.push(richRow);
+        rowsData.push({ values: cells });
       }
-      dRange.setRichTextValues(richRows);
-      // Right-justify D/E/F so decimal points align even when ratings fall
-      // below 1000 (900.00 is 6 chars vs 1000.00 is 7 chars).
-      dRange.setHorizontalAlignment('right');
+      var startRow = LEAGUE_START_ROWS[l] - 1; // 0-indexed
+      var endRow = startRow + leagueRows.length;
+      Sheets.Spreadsheets.batchUpdate({
+        requests: [{
+          updateCells: {
+            range: {
+              sheetId: sheetId,
+              startRowIndex: startRow,
+              endRowIndex: endRow,
+              startColumnIndex: 3, // D
+              endColumnIndex: 6    // G exclusive
+            },
+            rows: rowsData,
+            fields: 'userEnteredValue,textFormatRuns,userEnteredFormat'
+          }
+        }]
+      }, ss.getId());
       // Diagnostic: confirm nothing in D/E/F came back as a formula ('=' prefix).
-      var check = dRange.getValues();
+      var check = sheet.getRange(LEAGUE_RATING_RANGES[l]).getValues();
       for (var ci = 0; ci < check.length; ci++) {
         for (var cj = 0; cj < check[ci].length; cj++) {
           if (String(check[ci][cj]).charAt(0) === '=') {
@@ -213,6 +247,11 @@ function updateRatingsFromSheet() {
           }
         }
       }
+    } else if (typeof Sheets === 'undefined') {
+      SpreadsheetApp.getUi().alert(
+        'Enable the "Google Sheets API" advanced service first: in the Apps Script editor, ' +
+        'click + next to Services, add "Sheets", click Save, then run again.');
+      return;
     }
   }
 
