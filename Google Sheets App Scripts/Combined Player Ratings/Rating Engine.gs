@@ -14,6 +14,7 @@
  */
 
 var RATINGS_SHEET_NAME = 'Ratings';
+var RATINGS_HISTORY_SHEET_NAME = 'Ratings History';
 
 var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
 var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
@@ -167,6 +168,19 @@ function updateRatingsFromSheet() {
     ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
   }
 
+  // Participating players = everyone who appeared in a scored match this run.
+  // Only these get a Ratings History entry for today; non-participants keep
+  // their existing history untouched.
+  var participated = {};
+  for (var pn in changes) participated[pn] = true;
+  var participants = [];
+  for (var oi = 0; oi < outRows.length; oi++) {
+    var oname = String(outRows[oi][1]).trim();
+    if (oname !== '' && participated[oname]) {
+      participants.push({ name: oname, rating: outRows[oi][2], date: outRows[oi][3] });
+    }
+  }
+
   // Resolve the date sheet's ID once for the API write (mirrors Python).
   var sheetId = null;
   if (typeof Sheets !== 'undefined') {
@@ -307,8 +321,12 @@ function updateRatingsFromSheet() {
     range.setBackgrounds(bg);
   }
 
+  // Append today's ratings for participating players to the Ratings History
+  // tab (only players who actually played get a value in today's column).
+  var histCount = updateRatingsHistory(participants, today);
+
   Logger.log('Engine updateRatingsFromSheet complete.');
-  ss.toast('Ratings updated for ' + sortedNames.length + ' players.', 'Done', 3);
+  ss.toast('Ratings updated for ' + sortedNames.length + ' players (history: ' + histCount + ').', 'Done', 3);
 
   if (unrated.length > 0) {
     SpreadsheetApp.getUi().alert(
@@ -332,4 +350,126 @@ function padDiff(diff) {
   // is invisible but occupies real width (trailing spaces get trimmed).
   var sign = diff > 0 ? '+' : '';
   return sign + round2(diff).toFixed(2) + '.';
+}
+
+/**
+ * Append today's ratings for participating players to the Ratings History tab.
+ *
+ * Dated columns start at column I (index 9 in 1-based A1 terms). The column
+ * whose header matches today is filled with each participant's rating; if no
+ * such column exists yet it is appended on the right. Only players who played
+ * a scored match get a value today; everyone else's history stays untouched.
+ * New names (not yet in column B) are appended at the bottom.
+ *
+ * Mirrors the Python flow's update_ratings_history_tab, but writes ONLY
+ * participating players instead of every rated player.
+ *
+ * @param {Array.<{name: string, rating: number, date: string}>} participants
+ * @param {string} todayStr Date as 'MM-dd-yyyy' (already resolved in the sheet's time zone).
+ * @return {number} Number of players written to today's column.
+ */
+function updateRatingsHistory(participants, todayStr) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hist = ss.getSheetByName(RATINGS_HISTORY_SHEET_NAME);
+  if (!hist) {
+    hist = createRatingsHistoryTab(ss);
+    if (!hist) return 0;
+  }
+
+  var today = parseDatedHeader(todayStr);
+  if (!today) return 0;
+
+  // Scan dated headers (from column I onward) for today's column.
+  var headers = [];
+  if (hist.getLastColumn() >= 9) {
+    headers = hist.getRange(1, 9, 1, hist.getLastColumn() - 8).getValues()[0];
+  }
+  var colIndex = -1;   // 0-based column index (I = 8)
+  var lastCol = 8;     // 0-based index of the last dated column
+  for (var i = 0; i < headers.length; i++) {
+    var hd = parseDatedHeader(headers[i]);
+    if (!hd) continue;
+    lastCol = 8 + i;
+    if (isSameDay(hd, today)) {
+      colIndex = lastCol;
+      break;
+    }
+  }
+
+  if (colIndex === -1) {
+    colIndex = lastCol + 1;
+    var headerCell = hist.getRange(1, colIndex + 1);
+    headerCell.setValue(today);
+    headerCell.setNumberFormat('MMM d, yy');
+  }
+
+  // Name -> row map from column B so we write into the right player's row.
+  var bVals = hist.getRange('B2:B').getValues();
+  var nameRow = {};
+  var lastRow = 1;
+  for (var r = 0; r < bVals.length; r++) {
+    var nm = String(bVals[r][0]).trim();
+    if (nm === '') continue;
+    nameRow[nm] = r + 2;
+    lastRow = r + 2;
+  }
+
+  var colNum = colIndex + 1; // 1-based column number for getRange
+  var written = 0;
+  for (var p = 0; p < participants.length; p++) {
+    var pname = String(participants[p].name).trim();
+    if (pname === '') continue;
+    var row = nameRow[pname];
+    if (!row) {
+      lastRow++;
+      row = lastRow;
+      hist.getRange('B' + row).setValue(pname);
+      nameRow[pname] = row;
+    }
+    hist.getRange(row, colNum).setValue(round2(participants[p].rating));
+    written++;
+  }
+  return written;
+}
+
+/** Create the Ratings History tab with the standard header row if it is missing. */
+function createRatingsHistoryTab(ss) {
+  var tab = ss.getSheetByName(RATINGS_HISTORY_SHEET_NAME);
+  if (tab) return tab;
+  var newTab = ss.insertSheet(RATINGS_HISTORY_SHEET_NAME);
+  newTab.getRange('A1:H1').setValues([['', 'Player Names', 'USATT Ratings', 'Date Earned',
+    '', 'Club Ratings', 'Date Earned', 'Ratings History']]);
+  return newTab;
+}
+
+/** Parse a header cell value (Date, Excel serial, or date string) into a Date, or null. */
+function parseDatedHeader(v) {
+  if (v instanceof Date) return new Date(v.getTime());
+  if (typeof v === 'number' && v > 20000 && v < 60000) {
+    return new Date(Math.round((v - 25569) * 86400000));
+  }
+  if (typeof v === 'string') {
+    v = v.trim();
+    if (v === '') return null;
+    var parts = v.split(/[-/]/);
+    if (parts.length === 3) {
+      var a = parseInt(parts[0], 10);
+      var b = parseInt(parts[1], 10);
+      var y = parseInt(parts[2], 10);
+      if (y < 100) y += 2000;
+      // 'MM-dd-yyyy' first; fall back to 'dd-MM-yyyy' when the first number
+      // cannot be a month (e.g. a day > 12).
+      if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return new Date(y, a - 1, b);
+      if (b >= 1 && b <= 12 && a >= 1 && a <= 31) return new Date(y, b - 1, a);
+    }
+    var d = new Date(v);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+function isSameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
 }

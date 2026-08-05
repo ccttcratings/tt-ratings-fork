@@ -2,7 +2,7 @@
 
 from pymongo import MongoClient, ASCENDING, DESCENDING
 import certifi
-from datetime import datetime
+from datetime import datetime, timedelta
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -18,6 +18,79 @@ import os.path
 import re
 
 from mongodb_config import CONNECTION_URI
+
+# --- Ratings History date/column helpers -----------------------------------
+
+def date_serial_to_date(serial):
+    """Convert a Sheets date serial (days since 1899-12-30) to a datetime."""
+    return datetime(1899, 12, 30) + timedelta(days=float(serial))
+
+_MONTH_NUM = {}
+for _m_i, _m_name in enumerate(['january', 'february', 'march', 'april', 'may', 'june',
+                               'july', 'august', 'september', 'october', 'november', 'december'], start=1):
+    _MONTH_NUM[_m_name] = _m_i
+    _MONTH_NUM[_m_name[:3]] = _m_i
+
+def parse_flexible_date(value):
+    """Parse a date from a datetime, a Sheets date serial, or a flexible string
+    (MM-DD-YYYY, M/D/YY, YYYY-MM-DD, "Apr 4, 26", "4 Apr 2026", ...). Returns a
+    midnight datetime, or None if the value cannot be parsed."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    if isinstance(value, (int, float)):
+        try:
+            return date_serial_to_date(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    s = str(value).strip()
+    if not s:
+        return None
+    m = re.match(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$', s)  # YYYY-MM-DD
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        m = re.match(r'^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$', s)  # MM-DD-YYYY / M-D-YY
+        if m:
+            mo, d, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if y < 100:
+                y += 2000
+        else:
+            m = re.match(r'^([A-Za-z]{3,9})[\s,.\-]+(\d{1,2})[\s,.\-]+(\d{2,4})$', s)  # Apr 4, 26
+            if m:
+                mo = _MONTH_NUM.get(m.group(1).lower())
+                d = int(m.group(2))
+                y = int(m.group(3))
+                if y < 100:
+                    y += 2000
+                if not mo:
+                    return None
+            else:
+                m = re.match(r'^(\d{1,2})[\s,.\-]+([A-Za-z]{3,9})[\s,.\-]+(\d{2,4})$', s)  # 4 Apr 26
+                if m:
+                    d = int(m.group(1))
+                    mo = _MONTH_NUM.get(m.group(2).lower())
+                    y = int(m.group(3))
+                    if y < 100:
+                        y += 2000
+                    if not mo:
+                        return None
+                else:
+                    return None
+    try:
+        return datetime(y, mo, d)
+    except (TypeError, ValueError):
+        return None
+
+def col_letter(n):
+    """Convert a 0-based column index to a Sheets column letter (A=0)."""
+    s = ''
+    n += 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
 
 class ELO:
 
@@ -258,6 +331,33 @@ class MongoDB():
             player_date = p.get('Ratings', last_update)
             last_update = player_date if player_date > last_update else last_update
         return last_update
+
+    def get_rating_as_of(self, player_name, as_of):
+        """Return the player's most recent rating on or before as_of (a datetime),
+        or None if the player has no rating history up to that date."""
+        player = self.collection.find_one({'name': player_name})
+        if player is None:
+            return None
+        best = None
+        best_date = None
+        for entry in player.get('rating_history', []):
+            if isinstance(entry, dict):
+                d = entry.get('date')
+                r = entry.get('rating')
+            elif isinstance(entry, list):
+                d = entry[1] if len(entry) > 1 else None
+                r = entry[0] if entry else None
+            else:
+                continue
+            if d is None or r is None:
+                continue
+            parsed = parse_flexible_date(d)
+            if parsed is None or parsed > as_of:
+                continue
+            if best_date is None or parsed > best_date:
+                best_date = parsed
+                best = r
+        return float(best) if best is not None else None
 
     def set_new_ratings(self, new_ratings: dict, new_emails: dict = None):
         for k, v in new_ratings.items():
@@ -1054,6 +1154,163 @@ class GoogleSheet():
             all_player_ratings.append([ranking, k, v[0], active_player])
             print(f'{k}     active:{active_player}')
 
+    # ---- Ratings History tab ----
+
+    def _ensure_ratings_history_tab(self):
+        """Return the sheetId of the 'Ratings History' tab, creating it with a
+        minimal header row if it does not exist yet."""
+        if self.sheet is None:
+            self.get_sheet()
+        meta = self.sheet.get(spreadsheetId=self.SPREADSHEET_ID).execute()
+        for s in meta.get('sheets', []):
+            if s['properties']['title'] == 'Ratings History':
+                return s['properties']['sheetId']
+        resp = self.sheet.batchUpdate(
+            spreadsheetId=self.SPREADSHEET_ID,
+            body={'requests': [{'addSheet': {'properties': {'title': 'Ratings History'}}}]}).execute()
+        sheet_id = resp['replies'][0]['addSheet']['properties']['sheetId']
+        self.sheet.values().update(
+            spreadsheetId=self.SPREADSHEET_ID,
+            range='Ratings History!A1:H1',
+            valueInputOption='RAW',
+            body={'values': [['', 'Player Names', 'USATT Ratings', 'Date Earned',
+                              '', 'Club Ratings', 'Date Earned', 'Ratings History']]}).execute()
+        return sheet_id
+
+    def get_ratings_history_dated_columns(self, create=False):
+        """Return [(0-based column index, date)] for dated columns at/right of
+        column I (index 8). Creates the tab first only when create=True."""
+        if self.sheet is None:
+            self.get_sheet()
+        if create:
+            self._ensure_ratings_history_tab()
+        try:
+            res = self.sheet.values().get(
+                spreadsheetId=self.SPREADSHEET_ID,
+                range='Ratings History!1:1',
+                valueRenderOption='UNFORMATTED_VALUE').execute()
+        except HttpError:
+            return []
+        row = (res.get('values') or [[]])[0]
+        cols = []
+        for i in range(8, len(row)):
+            d = parse_flexible_date(row[i])
+            if d is not None:
+                cols.append((i, d))
+        return cols
+
+    def _set_date_format(self, sheet_id, col_index, row_index):
+        body = {'requests': [{'repeatCell': {
+            'range': {
+                'sheetId': sheet_id,
+                'startRowIndex': row_index, 'endRowIndex': row_index + 1,
+                'startColumnIndex': col_index, 'endColumnIndex': col_index + 1
+            },
+            'cell': {'userEnteredFormat': {'numberFormat': {'type': 'DATE', 'pattern': 'MMM d, yy'}}},
+            'fields': 'userEnteredFormat.numberFormat'
+        }}]}
+        try:
+            self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body=body).execute()
+        except HttpError as err:
+            print(f'Failed to set date format, error: {err}')
+
+    def _write_date_header(self, sheet_id, col_index, date):
+        cell = f'Ratings History!{col_letter(col_index)}1'
+        self.sheet.values().update(
+            spreadsheetId=self.SPREADSHEET_ID,
+            range=cell,
+            valueInputOption='USER_ENTERED',
+            body={'values': [[date.strftime('%m-%d-%Y')]]}).execute()
+        self._set_date_format(sheet_id, col_index, 0)
+
+    def update_ratings_history_tab(self, mongodb, new_ratings):
+        """Fill the Ratings History tab dated columns (I onward) from MongoDB
+        rating_history. The column matching today's run date gets the current
+        ratings; if that column is missing it is appended on the right. Column B
+        (names) is rewritten in the same rank order as the Ratings tab so history
+        follows players when rankings shuffle."""
+        if self.sheet is None:
+            self.get_sheet()
+        sheet_id = self._ensure_ratings_history_tab()
+        dated = self.get_ratings_history_dated_columns()
+        today = parse_flexible_date(self.date_str)
+        if today is None:
+            print('Could not parse run date; skipping Ratings History update.')
+            return
+
+        norm = {}
+        for k, v in new_ratings.items():
+            try:
+                norm[k] = float(v[0]) if isinstance(v, (list, tuple)) else float(v)
+            except (TypeError, ValueError):
+                continue
+        sorted_players = [k for k, _ in sorted(norm.items(), key=lambda x: x[1], reverse=True)]
+        if not sorted_players:
+            return
+
+        dates = [d for _, d in dated]
+        if today not in dates:
+            new_idx = (dated[-1][0] + 1) if dated else 8
+            self._write_date_header(sheet_id, new_idx, today)
+            dated = dated + [(new_idx, today)]
+
+        name_range = f'Ratings History!B2:B{len(sorted_players) + 1}'
+        self.sheet.values().update(
+            spreadsheetId=self.SPREADSHEET_ID, range=name_range,
+            valueInputOption='RAW',
+            body={'values': [[n] for n in sorted_players]}).execute()
+
+        if dated:
+            block = []
+            for name in sorted_players:
+                vals = []
+                for idx, d in dated:
+                    if d == today:
+                        vals.append(norm[name])
+                    else:
+                        r = mongodb.get_rating_as_of(name, d)
+                        vals.append(r if r is not None else '')
+                block.append(vals)
+            block_range = ('Ratings History!' + col_letter(dated[0][0]) + '2:'
+                           + col_letter(dated[-1][0]) + str(len(sorted_players) + 1))
+            self.sheet.values().update(
+                spreadsheetId=self.SPREADSHEET_ID, range=block_range,
+                valueInputOption='USER_ENTERED',
+                body={'values': block}).execute()
+
+        # Mirror the live club rating (Ratings C/D, just written) into the
+        # Ratings History Club Rating (F) and Date Earned (G) columns so the
+        # display stays in sync with the canonical Ratings tab.
+        try:
+            live = self.sheet.values().get(
+                spreadsheetId=self.SPREADSHEET_ID,
+                range='Ratings!B2:D').execute().get('values', [])
+        except HttpError:
+            live = []
+        live_map = {}
+        for r in live:
+            if r and r[0]:
+                live_map[str(r[0]).strip()] = r
+        rows_fg = []
+        for name in sorted_players:
+            r = live_map.get(name)
+            if r and len(r) > 1 and r[1] not in (None, ''):
+                try:
+                    f_val = float(r[1])
+                except (TypeError, ValueError):
+                    f_val = r[1]
+            else:
+                f_val = ''
+            g_val = r[2] if r and len(r) > 2 else ''
+            rows_fg.append([f_val, g_val])
+        fg_range = f'Ratings History!F2:G{len(sorted_players) + 1}'
+        self.sheet.values().update(
+            spreadsheetId=self.SPREADSHEET_ID, range=fg_range,
+            valueInputOption='RAW',
+            body={'values': rows_fg}).execute()
+
+        print(f'Updated Ratings History tab for {len(sorted_players)} players across {len(dated)} dated column(s).')
+
 def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
     rating_changes = {}
     match_rating_changes = {}  # Store individual match rating changes
@@ -1286,6 +1543,8 @@ def new_league(date_str, google_cred, active_days, execute, print_out):
         wrapped_new_ratings = {k: [v, date_obj] for k, v in new_ratings.items()}
         mongodb.set_new_ratings(wrapped_new_ratings, new_emails)
         google_sheet.set_new_ratings(wrapped_new_ratings, rating_increased, rating_decreased, active_days, match_rating_changes, new_emails)
+        print('Updating Ratings History tab...')
+        google_sheet.update_ratings_history_tab(mongodb, wrapped_new_ratings)
         print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')
@@ -1477,6 +1736,11 @@ def update_database_from_sheet(date_str, google_cred, active_days, execute, prin
             valueInputOption='RAW',
             body={'values': [[f'{date_str}']]}
         ).execute()
+
+        # Refresh the Ratings History tab (today's column from the sheet ratings)
+        print('Updating Ratings History tab...')
+        google_sheet.update_ratings_history_tab(
+            mongodb, {n: float(v[0]) for n, v in league_scores.items()})
 
         # Restore player emails with new rankings
         all_player_names = [name for name, _ in sorted_players]
