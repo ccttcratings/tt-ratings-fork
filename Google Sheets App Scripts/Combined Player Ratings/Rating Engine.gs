@@ -9,12 +9,25 @@
  *     via updateRating() (see CCTTC ELO.gs), and writes the results back
  *     to the Ratings sheet and the date sheet's league columns.
  *
- * Ratings sheet layout (same as the current CCTTC sheet):
- *   A = rank, B = player name, C = current rating, D = last-updated date.
+ * Combined Ratings sheet layout (single tab):
+ *   A = rank, B = player name, C = club rating, D = last-updated date,
+ *   E = Equalize button (instructions below), F = USATT rating,
+ *   G = USATT date earned, H = Show Inactive button, I-J blank,
+ *   K = Hide Inactive button, CB = primary emails, CE = secondary emails.
+ *
+ * Dated rating history lives on a hidden "Rating History" tab in long/tidy
+ * format: header row 1 (A=Player, B=Date, C=Rating) and one data row per
+ * player per session from row 2 onward. The "Ratings Graph" tab shows a
+ * checkbox roster (A=Show/Hide checkbox, B=player name, C=color swatch) in a
+ * left sidebar with the line chart anchored at column D; a hidden "Chart Data"
+ * tab pivots the history into the wide date-by-player grid the chart reads.
+ * Series flatline (carry their last rating forward) during inactive periods.
  */
 
 var RATINGS_SHEET_NAME = 'Ratings';
-var RATINGS_HISTORY_SHEET_NAME = 'Ratings History';
+var RATINGS_HISTORY_SHEET_NAME = 'Rating History';
+var RATINGS_HISTORY_HEADER_ROW = 1;
+var RATINGS_HISTORY_DATA_START_ROW = 2;
 
 var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
 var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
@@ -156,6 +169,19 @@ function updateRatingsFromSheet() {
     if (cName !== '') existingDates[cName] = curValues[ci][3];
   }
 
+  // Preserve player emails (CB = primary, CE = secondary) so they follow the
+  // players when rankings shuffle. Emails are keyed by name, not by row.
+  var emailsByName = {};
+  var emailValues = ratingsSheet.getRange('B2:CE').getValues();
+  for (var ei = 0; ei < emailValues.length; ei++) {
+    var eName = String(emailValues[ei][0]).trim();
+    if (eName === '') continue;
+    emailsByName[eName] = {
+      primary: emailValues[ei][78] !== undefined ? emailValues[ei][78] : '',
+      secondary: emailValues[ei][81] !== undefined ? emailValues[ei][81] : ''
+    };
+  }
+
   // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
   var outRows = [];
   for (var i = 0; i < sortedNames.length; i++) {
@@ -168,8 +194,25 @@ function updateRatingsFromSheet() {
     ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
   }
 
+  // Re-write emails aligned to the new (sorted) row order so they stay with
+  // the right player. CB = primary, CE = secondary.
+  var hVals = [];
+  var kVals = [];
+  for (var ori = 0; ori < outRows.length; ori++) {
+    var on = String(outRows[ori][1]).trim();
+    var em = emailsByName[on] || { primary: '', secondary: '' };
+    hVals.push([em.primary || '']);
+    kVals.push([em.secondary || '']);
+  }
+  if (hVals.length > 0) {
+    ratingsSheet.getRange('CB2:CB' + (hVals.length + 1)).setValues(hVals);
+  }
+  if (kVals.length > 0) {
+    ratingsSheet.getRange('CE2:CE' + (kVals.length + 1)).setValues(kVals);
+  }
+
   // Participating players = everyone who appeared in a scored match this run.
-  // Only these get a Ratings History entry for today; non-participants keep
+  // Only these get a Ratings Graph entry for today; non-participants keep
   // their existing history untouched.
   var participated = {};
   for (var pn in changes) participated[pn] = true;
@@ -321,8 +364,8 @@ function updateRatingsFromSheet() {
     range.setBackgrounds(bg);
   }
 
-  // Append today's ratings for participating players to the Ratings History
-  // tab (only players who actually played get a value in today's column).
+  // Append today's ratings for participating players to the Ratings Graph tab
+  // (only players who actually played get a value in today's column).
   var histCount = updateRatingsHistory(participants, today);
 
   Logger.log('Engine updateRatingsFromSheet complete.');
@@ -353,20 +396,20 @@ function padDiff(diff) {
 }
 
 /**
- * Append today's ratings for participating players to the Ratings History tab.
+ * Append today's ratings for participating players to the hidden Rating
+ * History tab.
  *
- * Dated columns start at column I (index 9 in 1-based A1 terms). The column
- * whose header matches today is filled with each participant's rating; if no
- * such column exists yet it is appended on the right. Only players who played
- * a scored match get a value today; everyone else's history stays untouched.
- * New names (not yet in column B) are appended at the bottom.
- *
- * Mirrors the Python flow's update_ratings_history_tab, but writes ONLY
- * participating players instead of every rated player.
+ * The Rating History tab holds the dated history in long/tidy form that feeds
+ * the line chart via the hidden "Chart Data" pivot tab. Header row 1 has
+ * A=Player, B=Date, C=Rating and data starts at row 2 (constants
+ * RATINGS_HISTORY_HEADER_ROW / RATINGS_HISTORY_DATA_START_ROW), with one data
+ * row per player per session. Only players who played a scored match get an
+ * entry today; everyone else's history stays untouched. Re-running the engine
+ * on the same day overwrites that day's rows instead of duplicating them.
  *
  * @param {Array.<{name: string, rating: number, date: string}>} participants
  * @param {string} todayStr Date as 'MM-dd-yyyy' (already resolved in the sheet's time zone).
- * @return {number} Number of players written to today's column.
+ * @return {number} Number of rows written/updated for today.
  */
 function updateRatingsHistory(participants, todayStr) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -379,66 +422,59 @@ function updateRatingsHistory(participants, todayStr) {
   var today = parseDatedHeader(todayStr);
   if (!today) return 0;
 
-  // Scan dated headers (from column I onward) for today's column.
-  var headers = [];
-  if (hist.getLastColumn() >= 9) {
-    headers = hist.getRange(1, 9, 1, hist.getLastColumn() - 8).getValues()[0];
-  }
-  var colIndex = -1;   // 0-based column index (I = 8)
-  var lastCol = 8;     // 0-based index of the last dated column
-  for (var i = 0; i < headers.length; i++) {
-    var hd = parseDatedHeader(headers[i]);
-    if (!hd) continue;
-    lastCol = 8 + i;
-    if (isSameDay(hd, today)) {
-      colIndex = lastCol;
-      break;
-    }
+  var headerRow = RATINGS_HISTORY_HEADER_ROW;
+  var firstDataRow = RATINGS_HISTORY_DATA_START_ROW;
+
+  // Ensure the header row is present (A=Player, B=Date, C=Rating).
+  var curHeader = hist.getRange(headerRow, 1, 1, 3).getValues()[0];
+  if (String(curHeader[0]).trim() !== 'Player' ||
+      String(curHeader[1]).trim() !== 'Date' ||
+      String(curHeader[2]).trim() !== 'Rating') {
+    hist.getRange(headerRow, 1, 1, 3).setValues([['Player', 'Date', 'Rating']]);
   }
 
-  if (colIndex === -1) {
-    colIndex = lastCol + 1;
-    var headerCell = hist.getRange(1, colIndex + 1);
-    headerCell.setValue(today);
-    headerCell.setNumberFormat('MMM d, yy');
+  // Read existing data rows as key -> row index so we can overwrite today's
+  // entries for players who already have a row this day (idempotent re-run).
+  var lastRow = hist.getLastRow();
+  var existing = {};       // name|date-key -> 0-based row offset in values array
+  var values = [];
+  if (lastRow >= firstDataRow) {
+    values = hist.getRange(firstDataRow, 1, lastRow - firstDataRow + 1, 3).getValues();
+  }
+  var nextRow = firstDataRow + values.length;
+  for (var r = 0; r < values.length; r++) {
+    var pn = String(values[r][0]).trim();
+    var pd = parseDatedHeader(values[r][1]);
+    if (pn === '' || !pd) continue;
+    var key = pn.toLowerCase() + '|' + pd.getTime();
+    existing[key] = firstDataRow + r;
   }
 
-  // Name -> row map from column B so we write into the right player's row.
-  var bVals = hist.getRange('B2:B').getValues();
-  var nameRow = {};
-  var lastRow = 1;
-  for (var r = 0; r < bVals.length; r++) {
-    var nm = String(bVals[r][0]).trim();
-    if (nm === '') continue;
-    nameRow[nm] = r + 2;
-    lastRow = r + 2;
-  }
-
-  var colNum = colIndex + 1; // 1-based column number for getRange
   var written = 0;
   for (var p = 0; p < participants.length; p++) {
     var pname = String(participants[p].name).trim();
     if (pname === '') continue;
-    var row = nameRow[pname];
-    if (!row) {
-      lastRow++;
-      row = lastRow;
-      hist.getRange('B' + row).setValue(pname);
-      nameRow[pname] = row;
+    var rating = round2(participants[p].rating);
+    var key = pname.toLowerCase() + '|' + today.getTime();
+    if (existing[key] !== undefined) {
+      hist.getRange(existing[key], 3).setValue(rating);
+    } else {
+      hist.getRange(nextRow, 1, 1, 3).setValues([[pname, today, rating]]);
+      hist.getRange(nextRow, 2).setNumberFormat('MMM d, yy');
+      nextRow++;
     }
-    hist.getRange(row, colNum).setValue(round2(participants[p].rating));
     written++;
   }
   return written;
 }
 
-/** Create the Ratings History tab with the standard header row if it is missing. */
+/** Create the hidden Rating History tab with the standard header row if it is missing. */
 function createRatingsHistoryTab(ss) {
   var tab = ss.getSheetByName(RATINGS_HISTORY_SHEET_NAME);
   if (tab) return tab;
   var newTab = ss.insertSheet(RATINGS_HISTORY_SHEET_NAME);
-  newTab.getRange('A1:H1').setValues([['', 'Player Names', 'USATT Ratings', 'Date Earned',
-    '', 'Club Ratings', 'Date Earned', 'Ratings History']]);
+  newTab.hideSheet();
+  newTab.getRange(RATINGS_HISTORY_HEADER_ROW, 1, 1, 3).setValues([['Player', 'Date', 'Rating']]);
   return newTab;
 }
 
@@ -473,3 +509,5 @@ function isSameDay(a, b) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 }
+
+

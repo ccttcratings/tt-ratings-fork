@@ -7,7 +7,7 @@ function hideInactivePlayers() {
   // Column D = the last date a player's rating changed, maintained by the
   // weekly/ad-hoc Python runs (tt-ratings.py). Hide anyone who has never been
   // dated or whose date is older than the 90-day (3 month) window. Contiguous
-  // hidden rows are hidden in single hideRows(start, numRows) calls — calling
+  // hidden rows are hidden in single hideRows(start, numRows) calls â€” calling
   // hideRows once per row is what makes the button slow.
   var dateValues = sheet.getRange("D2:D").getValues();
   var today = new Date();

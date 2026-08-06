@@ -33,7 +33,7 @@ function sendSaturdayEmail() {
       return;
     }
 
-    const ratingsData = ratingsSheet.getRange('A2:CD').getValues();
+    const ratingsData = ratingsSheet.getRange('A2:CE').getValues();
     const emailToRating = {};
     const emailToDBName = {};
 
@@ -47,9 +47,10 @@ function sendSaturdayEmail() {
       }
     }
 
+    // Combined Ratings layout: CB = primary email (index 79), CE = secondary email (index 82).
     for (let i = 0; i < ratingsData.length; i++) {
       addEmailLookup(ratingsData[i][79], ratingsData[i][2], ratingsData[i][1]);
-      addEmailLookup(ratingsData[i][81], ratingsData[i][2], ratingsData[i][1]);
+      addEmailLookup(ratingsData[i][82], ratingsData[i][2], ratingsData[i][1]);
     }
 
     const yesPlayers = [];

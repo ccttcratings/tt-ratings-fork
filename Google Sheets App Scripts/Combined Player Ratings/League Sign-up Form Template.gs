@@ -28,6 +28,21 @@ function getSetupValue(ss, key, fallback) {
   return fallback;
 }
 
+/**
+ * Resolve the "Are youse playing?" multiple-choice question by scanning the
+ * form for a Multiple Choice item instead of relying on a hardcoded item ID
+ * (which is form-specific and breaks the club-kit template for other clubs).
+ */
+function getPlayingItem(form) {
+  var items = form.getItems();
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].getType() === FormApp.ItemType.MULTIPLE_CHOICE) {
+      return items[i];
+    }
+  }
+  throw new Error('No multiple-choice "Are youse playing?" question found on the form.');
+}
+
 function newLeagueDate() {
   var form = FormApp.getActiveForm();
   var ss = null;
@@ -67,16 +82,16 @@ function newLeagueDate() {
       formItems[i].setTitle('Names');
     }
   }
-  form.getItemById(598333706).setTitle('Are youse playing?');
+  getPlayingItem(form).setTitle('Are youse playing?');
 
   if (!form.isAcceptingResponses()) {
     form.setTitle(form.getTitle().replace("OPEN", "CLOSED"));
     form.setDescription('Signup is closed, please check back later.\n\n' + form_description);
-    form.getItemById(598333706).asMultipleChoiceItem().setChoiceValues(["No"]);
+    getPlayingItem(form).asMultipleChoiceItem().setChoiceValues(["No"]);
   } else {
     form.setTitle(form.getTitle().replace("CLOSED", "OPEN"));
     form.setDescription(form_description);
-    form.getItemById(598333706).asMultipleChoiceItem().setChoiceValues(["Yes", "No"]);
+    getPlayingItem(form).asMultipleChoiceItem().setChoiceValues(["Yes", "No"]);
   }
 
   var now = new Date();
@@ -103,7 +118,7 @@ function newLeagueDate() {
   form.setTitle(new_title);
   form.setDescription(form_description);
   form.deleteAllResponses();
-  form.getItemById(598333706).asMultipleChoiceItem().setChoiceValues(["Yes", "No"]);
+  getPlayingItem(form).asMultipleChoiceItem().setChoiceValues(["Yes", "No"]);
 
   var sheet = ss.getSheetByName(new_date_str);
   if (sheet) {
@@ -202,8 +217,7 @@ function newLeagueDate() {
 
 function limitYesResponses() {
   var form = FormApp.getActiveForm();
-  var itemId = 598333706;
-  var item = form.getItemById(itemId);
+  var item = getPlayingItem(form);
   if (!item) {
     Logger.log('Item not found. Check the item ID.');
     return;
