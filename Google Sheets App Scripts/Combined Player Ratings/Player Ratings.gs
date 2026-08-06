@@ -67,6 +67,62 @@ function updateRosterSwatches(sheet) {
 }
 
 /**
+ * Fit the chart's rating axis to the lines actually visible on the graph.
+ * Instead of the fixed 900-2100 window, the k-th CHECKED roster player's line
+ * is read from the same masked Chart Data columns the chart plots, so only
+ * visible lines contribute to the axis. The window is padded by AXIS_PADDING
+ * points top and bottom and pushed into the chart via EmbeddedChartBuilder —
+ * a partial update that leaves the trimmed series and their colors untouched.
+ */
+function fitChartAxis() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var graph = ss.getSheetByName(ROSTER_SHEET_NAME);
+  var data = ss.getSheetByName(CHART_DATA_SHEET_NAME);
+  if (!graph || !data) return;
+
+  var lastRow = graph.getLastRow();
+  var bVals = graph.getRange('B2:B' + lastRow).getValues();
+  var selectAllRow = -1;
+  for (var i = 0; i < bVals.length; i++) {
+    if (String(bVals[i][0]).trim() === 'Select All') selectAllRow = i + 2;
+  }
+  var playerCount = selectAllRow > 1 ? selectAllRow - ROSTER_FIRST_PLAYER_ROW : 0;
+  if (playerCount <= 0) return;
+
+  var checks = graph.getRange(ROSTER_FIRST_PLAYER_ROW, 1, playerCount, 1).getValues();
+
+  // The masked columns on Chart Data (B..) mirror the checkbox state via
+  // SCAN/ARRAYFORMULA; flush() forces their recalculation so the read matches
+  // the checkbox set we just wrote, then scan the checked columns for the
+  // lowest and highest rating any visible line reaches.
+  SpreadsheetApp.flush();
+  var values = data.getRange(2, 2, 499, playerCount).getValues();
+  var dataMin = Infinity;
+  var dataMax = -Infinity;
+  for (var i = 0; i < playerCount; i++) {
+    var checked = (checks[i][0] === true || String(checks[i][0]).trim() === 'TRUE');
+    if (!checked) continue;
+    for (var r = 0; r < values.length; r++) {
+      var v = values[r][i];
+      if (typeof v === 'number' && isFinite(v)) {
+        if (v < dataMin) dataMin = v;
+        if (v > dataMax) dataMax = v;
+      }
+    }
+  }
+  if (dataMin === Infinity) return;
+
+  var charts = graph.getCharts();
+  if (charts.length === 0) return;
+  var pad = AXIS_PADDING;
+  var rebuilt = charts[0].modify()
+    .setOption('vAxis.viewWindow.min', dataMin - pad)
+    .setOption('vAxis.viewWindow.max', dataMax + pad)
+    .build();
+  graph.updateChart(rebuilt);
+}
+
+/**
  * Week 9-16 fade ramp, shared by the Ratings tab and the Ratings Graph roster.
  * Returns [purple, peach, blue] font colors for a given days-inactive count
  * (or null when the player is still fully active / already past the fade). The
@@ -318,6 +374,9 @@ function syncRatingsGraphRows(hideInactive) {
 
   // Mirror the chart's line colors into the swatch column (C).
   updateRosterSwatches(graph);
+
+  // Re-fit the chart axis to the lines that are now visible.
+  fitChartAxis();
 }
 
 function parseDateValue(v) {
@@ -830,6 +889,8 @@ function findWinnersForDate(dateString) {
 
 var ROSTER_SHEET_NAME = 'Ratings Graph';
 var ROSTER_FIRST_PLAYER_ROW = 2;
+var CHART_DATA_SHEET_NAME = 'Chart Data';
+var AXIS_PADDING = 25;
 
 /**
  * Select All checkbox at the bottom of the Ratings Graph roster (row N+2,
@@ -869,6 +930,9 @@ function onEdit(e) {
   // current checkbox set. Runs for per-player toggles too, so C stays in sync
   // with the chart's re-colored lines.
   updateRosterSwatches(sheet);
+
+  // Re-fit the chart axis to the lines that are now visible (checked only).
+  fitChartAxis();
 
   if (range.getRow() !== selectAllRow) return; // per-player toggles pass through
 
