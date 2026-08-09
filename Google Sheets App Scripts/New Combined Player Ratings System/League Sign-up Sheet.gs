@@ -1,5 +1,5 @@
 const RESPONSE_SPREADSHEET_ID = '1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk';
-const MAIN_SPREADSHEET_ID = '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg';
+const MAIN_SPREADSHEET_ID = '1NdnC1kN831FVfcInOmFBfe-PU5tgKjFh3I-uxPdVGJM';
 const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com, bryant@champaigntabletennis.com';
 const HEADER_ROW = 3;
 

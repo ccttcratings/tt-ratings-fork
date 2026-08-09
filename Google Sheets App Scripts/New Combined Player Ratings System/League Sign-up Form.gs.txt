@@ -127,7 +127,7 @@ function newLeagueDate() {
     sheet.getRange('C3:C5').setHorizontalAlignment('center');
     sheet.getRange('F3:F5').setHorizontalAlignment('center');
     sheet.getRange('B2').setFormula('=IMAGE("https://drive.google.com/uc?export=download&id=12SCNh6cC0Alypz2eeuXoQjd9Mb8WjZVZ")');
-    sheet.getRange('C4').setRichTextValue(SpreadsheetApp.newRichTextValue().setText('League Results').setLinkUrl('https://docs.google.com/spreadsheets/d/1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg/edit?gid=1967667427#gid=1967667427').build()).setFontColor('#000000').setFontLine('none');
+    sheet.getRange('C4').setRichTextValue(SpreadsheetApp.newRichTextValue().setText('League Results').setLinkUrl('https://docs.google.com/spreadsheets/d/1NdnC1kN831FVfcInOmFBfe-PU5tgKjFh3I-uxPdVGJM/edit?gid=1967667427#gid=1967667427').build()).setFontColor('#000000').setFontLine('none');
     SpreadsheetApp.flush();
 
     // Fix headers on the previous response sheet (form push reverts C3/D3)
