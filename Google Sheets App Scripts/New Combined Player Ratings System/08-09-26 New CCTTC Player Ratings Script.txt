@@ -19,7 +19,13 @@ function updateRating(p1Rating, p2Rating, scoreDiffs) {
   var ratingDiff = p1Rating - p2Rating;
   var sign = gameScoreDiff > 0 ? 1 : -1;
   if (Math.abs(gameScoreDiff) === 2 && scoreDiffs.length === 2) {
-    gameScoreDiff = 3 * sign;
+    var isHigherRated = ratingDiff >= 0;
+    var isWinner = gameScoreDiff > 0;
+    if (!(isHigherRated !== isWinner)) {
+      gameScoreDiff = 3 * sign;
+    } else {
+      gameScoreDiff = 2 * sign;
+    }
   } else if (Math.abs(gameScoreDiff) === 1 && scoreDiffs.length === 3) {
     var isHigherRated = ratingDiff >= 0;
     var isWinner = gameScoreDiff > 0;
@@ -224,10 +230,10 @@ function showInactivePlayers() {
   if (rowCount > 0) {
     sheet.showRows(2, rowCount);
 
-    // Select the full block from Column A down through Column G to reset text
-    // to black (undo any fade).
-    var fullRange = sheet.getRange(2, 1, rowCount, 7);
-    fullRange.setFontColor("#000000");
+    // Reset the themed font colors back to black (undo any fade) for A-D and
+    // F-G. Column E is the Equalize button and must keep its own font color.
+    sheet.getRange(2, 1, rowCount, 4).setFontColor("#000000");
+    sheet.getRange(2, 6, rowCount, 2).setFontColor("#000000");
   }
 }
 
@@ -389,6 +395,144 @@ function findMatchWinner(scores) {
   return [winner_id, p1vp2_score_diffs, p1_scores_w, p1_scores_l, p2vp1_score_diffs, p2_scores_w, p2_scores_l]
 }
 
+function isSuspectedTypo(row) {
+  // Mirrors tt-ratings.py _is_suspected_typo. Flags rows that look like
+  // data-entry typos: a game pair with exactly one score filled, an interior
+  // gap (blank score cells before later scores), a completed game whose winner
+  // did not reach 11, a deuce game won by more than 2, or an impossible 11-10.
+  // Defined here (shared file) so both the CCTTC and combined systems can use
+  // it from findWinners / Rating Engine.
+  if (!row || row.length < 3) return false;
+  var p1Name = String(row[0]).trim();
+  var p2Name = String(row[2]).trim();
+  if (p1Name === '' || p2Name === '') return false;
+
+  function isNum(v) {
+    if (typeof v === 'boolean') return false;
+    if (typeof v === 'number') return true;
+    if (typeof v === 'string') {
+      if (v.trim() === '') return false;
+      return !isNaN(parseFloat(v));
+    }
+    return false;
+  }
+  function parseVal(v) {
+    return isNum(v) ? parseFloat(v) : null;
+  }
+
+  var pairs = [];
+  for (var k = 3; k < Math.min(row.length, 13); k += 2) {
+    var s1 = parseVal(row[k]);
+    var s2 = (k + 1 < row.length) ? parseVal(row[k + 1]) : null;
+    pairs.push([s1, s2]);
+  }
+
+  // Interior gap: a fully-blank pair followed later by a pair with scores.
+  var gap = false;
+  for (var i = 0; i < pairs.length; i++) {
+    var filledHere = pairs[i][0] !== null || pairs[i][1] !== null;
+    if (filledHere) {
+      if (gap) return true;
+    } else {
+      gap = true;
+    }
+  }
+
+  for (var j = 0; j < pairs.length; j++) {
+    var a = pairs[j][0], b = pairs[j][1];
+    if ((a === null) !== (b === null)) return true; // half-filled pair
+    if (a === null) continue;                       // both blank (trailing)
+    var hi = Math.max(a, b), lo = Math.min(a, b);
+    if (hi < 11) return true;                       // nobody reached 11
+    if (hi > 11 && (hi - lo) !== 2) return true;    // deuce must win by 2
+    if (hi === 11 && lo > 9) return true;           // 11-10 impossible
+  }
+  return false;
+}
+
+function scanForTypos(sheet) {
+  // Scan the three league score ranges and return an array of typo records:
+  // { league, rowIndex, baseIndex, p1, p2 }. baseIndex is the first score row
+  // of the league (3, 20, 37); the J cell to flag is baseIndex + rowIndex.
+  var ranges = ["I3:U17", "I20:U34", "I37:U51"];
+  var typos = [];
+  for (var l = 0; l < 3; l++) {
+    var values = sheet.getRange(ranges[l]).getValues();
+    var baseIndex = l * 17 + 3;
+    for (var j = 0; j < values.length; j++) {
+      var row = values[j];
+      if (!row[0] || !row[2]) continue;
+      var p1 = String(row[0]).trim();
+      var p2 = String(row[2]).trim();
+      if (p1 === "" || p2 === "") continue;
+      if (isSuspectedTypo(row)) {
+        typos.push({ league: l, rowIndex: j, baseIndex: baseIndex, p1: p1, p2: p2 });
+      }
+    }
+  }
+  return typos;
+}
+
+function flagTypoRows(sheet, typos) {
+  for (var i = 0; i < typos.length; i++) {
+    var t = typos[i];
+    sheet.getRange(t.baseIndex + t.rowIndex, 10).setBackground("#ff0000");
+  }
+}
+
+function buildTypoDialogHtml(action, sheetName, typos) {
+  var list = typos.map(function (t) {
+    return "<li>League " + (t.league + 1) + " row " + (t.baseIndex + t.rowIndex) +
+      ": <b>" + String(t.p1).replace(/&/g, "&amp;").replace(/</g, "&lt;") +
+      "</b> vs <b>" + String(t.p2).replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</b></li>";
+  }).join("");
+  return '<!DOCTYPE html><html><head><base target="_top"></head><body>' +
+    '<h3>Suspected score typos</h3>' +
+    '<p>The following rows are flagged red in column J. Fix the scores in the ' +
+    'sheet, then click <b>Re-check</b> to continue:</p>' +
+    '<ul>' + list + '</ul>' +
+    '<p><button id="recheck" onclick="recheck()">Re-check</button></p>' +
+    '<div id="status"></div>' +
+    '<script>' +
+    'function recheck() {' +
+    '  document.getElementById("recheck").disabled = true;' +
+    '  document.getElementById("status").textContent = "Checking...";' +
+    '  google.script.run.withSuccessHandler(onDone).typoRecheck("' + action + '", "' + sheetName + '");' +
+    '}' +
+    'function onDone(result) {' +
+    '  if (result.clean) { google.script.host.close(); }' +
+    '  else { document.body.innerHTML = result.html; }' +
+    '}' +
+    '</script>' +
+    '</body></html>';
+}
+
+function showTypoDialog(action, sheetName, typos) {
+  SpreadsheetApp.getUi().showModelessDialog(
+    HtmlService.createHtmlOutput(buildTypoDialogHtml(action, sheetName, typos))
+      .setWidth(460).setHeight(340),
+    "Fix typos to continue");
+}
+
+function typoRecheck(action, sheetName) {
+  // Re-read the sheet after the operator fixes the flagged rows. When no typos
+  // remain, resume the pending action (findWinners / updateRatingsFromSheet) in
+  // the same run; otherwise keep the dialog open with the remaining rows.
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  if (!sheet) return { clean: true };
+  var typos = scanForTypos(sheet);
+  if (typos.length > 0) {
+    flagTypoRows(sheet, typos);
+    return { clean: false, html: buildTypoDialogHtml(action, sheetName, typos) };
+  }
+  if (action === "findWinners") {
+    findWinners();
+  } else if (action === "updateRatings") {
+    updateRatingsFromSheet();
+  }
+  return { clean: true };
+}
+
 function findWinners() {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -418,6 +562,17 @@ function findWinners() {
     }
 
     SpreadsheetApp.getActiveSpreadsheet().toast('Finding winners for sheet: ' + sheetName, 'Processing', 3);
+
+    // Typo gate: check for suspected score typos BEFORE computing winners. If
+    // any are found, flag their J cells red and open a modeless dialog so the
+    // operator can fix them in the sheet, then click Re-check; once the data is
+    // clean the same run continues automatically (typoRecheck -> findWinners).
+    var typos = scanForTypos(sheet);
+    if (typos.length > 0) {
+      flagTypoRows(sheet, typos);
+      showTypoDialog("findWinners", sheetName, typos);
+      return;
+    }
 
   var player_list = sheet.getRangeList(["C3:C8", "C20:C25", "C37:C42"]).getRanges();
   var league_results = {};
@@ -776,6 +931,7 @@ var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
 var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
 var LEAGUE_RATING_RANGES = ['D3:F8', 'D20:F25', 'D37:F42'];
 var LEAGUE_START_ROWS = [3, 20, 37];
+var POINT_WINNER_RANGES = ['D12', 'D29', 'D46'];
 
 function getCurrentRatings(sheet) {
   var values = sheet.getRange('A2:D').getValues();
@@ -819,6 +975,12 @@ function parseScoresRow(row) {
   };
 }
 
+function isSuspectedTypo(row) {
+  // Implemented in Player Ratings.gs (always deployed, both CCTTC and combined
+  // systems) — call it through the global scope so this file never shadows it.
+  return globalThis.isSuspectedTypo(row);
+}
+
 function updateRatingsFromSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
@@ -834,6 +996,17 @@ function updateRatingsFromSheet() {
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
   if (!ratingsSheet) {
     SpreadsheetApp.getUi().alert("Ratings sheet not found.");
+    return;
+  }
+
+  // Typo gate: check for suspected score typos BEFORE computing ratings. If any
+  // are found, flag their J cells red and open a modeless dialog so the operator
+  // can fix them in the sheet, then click Re-check; once the data is clean the
+  // same run continues automatically (typoRecheck -> updateRatingsFromSheet).
+  var typos = scanForTypos(sheet);
+  if (typos.length > 0) {
+    flagTypoRows(sheet, typos);
+    showTypoDialog("updateRatings", sheetName, typos);
     return;
   }
 
@@ -881,78 +1054,11 @@ function updateRatingsFromSheet() {
     Logger.log('Players needing an initial rating in the Ratings sheet: ' + unrated.join(', '));
   }
 
-  // Build updated ratings list.
-  var newRatings = {};
-  var allNames = {};
-  for (var name in currentRatings) allNames[name] = true;
-  for (var name in changes) allNames[name] = true;
-
-  for (var name in allNames) {
-    var base = currentRatings[name] !== undefined ? currentRatings[name] : null;
-    if (base === null) continue; // unrated player: skip until admin assigns a rating
-    // Ratings live on the USATT quarter-point scale. ELO changes are already
-    // 0.25 multiples, so this is normally a no-op; it only snaps ratings that
-    // were hand-entered off-grid (e.g. 1000.10 -> 1000.00).
-    newRatings[name] = roundQuarter(base + (changes[name] || 0));
-  }
-
-  // Sort descending by rating.
-  var sortedNames = Object.keys(newRatings).sort(function (a, b) {
-    return newRatings[b] - newRatings[a];
-  });
-
+  // Sort and write the Ratings tab (shared with rerankRatings()).
+  var result = writeRatingsTab(ss, ratingsSheet, currentRatings, changes);
+  var outRows = result.outRows;
+  var newRatings = result.newRatings;
   var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
-
-  // Preserve existing D-column dates; only players whose rating actually
-  // changed this run get today's date (D = "last date the rating changed").
-  var existingDates = {};
-  var curValues = ratingsSheet.getRange('A2:D').getValues();
-  for (var ci = 0; ci < curValues.length; ci++) {
-    var cName = String(curValues[ci][1]).trim();
-    if (cName !== '') existingDates[cName] = curValues[ci][3];
-  }
-
-  // Preserve player emails (CB = primary, CE = secondary) so they follow the
-  // players when rankings shuffle. Emails are keyed by name, not by row.
-  var emailsByName = {};
-  var emailValues = ratingsSheet.getRange('B2:CE').getValues();
-  for (var ei = 0; ei < emailValues.length; ei++) {
-    var eName = String(emailValues[ei][0]).trim();
-    if (eName === '') continue;
-    emailsByName[eName] = {
-      primary: emailValues[ei][78] !== undefined ? emailValues[ei][78] : '',
-      secondary: emailValues[ei][81] !== undefined ? emailValues[ei][81] : ''
-    };
-  }
-
-  // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
-  var outRows = [];
-  for (var i = 0; i < sortedNames.length; i++) {
-    var name = sortedNames[i];
-    var changed = (changes[name] || 0) !== 0;
-    var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
-    outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
-  }
-  if (outRows.length > 0) {
-    ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
-  }
-
-  // Re-write emails aligned to the new (sorted) row order so they stay with
-  // the right player. CB = primary, CE = secondary.
-  var hVals = [];
-  var kVals = [];
-  for (var ori = 0; ori < outRows.length; ori++) {
-    var on = String(outRows[ori][1]).trim();
-    var em = emailsByName[on] || { primary: '', secondary: '' };
-    hVals.push([em.primary || '']);
-    kVals.push([em.secondary || '']);
-  }
-  if (hVals.length > 0) {
-    ratingsSheet.getRange('CB2:CB' + (hVals.length + 1)).setValues(hVals);
-  }
-  if (kVals.length > 0) {
-    ratingsSheet.getRange('CE2:CE' + (kVals.length + 1)).setValues(kVals);
-  }
 
   // Participating players = everyone who appeared in a scored match this run.
   // Only these get a Ratings Graph entry for today; non-participants keep
@@ -1059,16 +1165,6 @@ function updateRatingsFromSheet() {
           }
         }]
       }, ss.getId());
-      // Diagnostic: confirm nothing in D/E/F came back as a formula ('=' prefix).
-      var check = sheet.getRange(LEAGUE_RATING_RANGES[l]).getValues();
-      for (var ci = 0; ci < check.length; ci++) {
-        for (var cj = 0; cj < check[ci].length; cj++) {
-          if (String(check[ci][cj]).charAt(0) === '=') {
-            Logger.log('Engine: WARNING - ' + LEAGUE_RATING_RANGES[l] + ' cell ' +
-              ci + ',' + cj + ' stored as formula: ' + check[ci][cj]);
-          }
-        }
-      }
     } else if (typeof Sheets === 'undefined') {
       SpreadsheetApp.getUi().alert(
         'Enable the "Google Sheets API" advanced service first: in the Apps Script editor, ' +
@@ -1077,19 +1173,52 @@ function updateRatingsFromSheet() {
     }
   }
 
-  // Write ELO change into column J (index 1) of each score row, and color the
+  // Write the highest point winner for each league to D12/D29/D46: the player
+  // in that league (column C) whose rating gain this run is the biggest.
+  for (var l = 0; l < 3; l++) {
+    var pwPlayerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
+    var pwWinners = [];
+    var pwMaxChange = null;
+    for (var j = 0; j < pwPlayerValues.length; j++) {
+      var pwName = String(pwPlayerValues[j][0]).trim();
+      if (pwName === '') continue;
+      var pwChange = changes[pwName] !== undefined ? changes[pwName] : 0;
+      if (pwMaxChange === null || pwChange > pwMaxChange) {
+        pwMaxChange = pwChange;
+        pwWinners = [pwName];
+      } else if (pwChange === pwMaxChange) {
+        pwWinners.push(pwName);
+      }
+    }
+    if (pwMaxChange === null || pwWinners.length === 0) continue;
+    // On a tie, sort by current rating (highest first), mirroring the Python engine.
+    pwWinners.sort(function (a, b) {
+      var ra = newRatings[a] !== undefined ? newRatings[a] : 0;
+      var rb = newRatings[b] !== undefined ? newRatings[b] : 0;
+      return rb - ra;
+    });
+    var pwWinnerStr = pwWinners.join(', ');
+    sheet.getRange(POINT_WINNER_RANGES[l]).setValue(pwWinnerStr);
+    Logger.log('League ' + (l + 1) + ' highest point winner: ' + pwWinnerStr +
+      ' (+' + pwMaxChange.toFixed(2) + ')');
+  }
+
+  // Write ELO change into column J (index 1) of each score row and color the
   // winner's name cell green (column I for a P1 win, column K for a P2 win).
-  // Only rows that actually carry game scores get a change; an empty row with
-  // the same player pair must NOT inherit another match's change.
+  // Suspected typos are caught by the gate before this loop runs. Only rows
+  // that actually carry game scores get a change; an empty row with the same
+  // player pair must NOT inherit another match's change.
   for (var l = 0; l < 3; l++) {
     var range = sheet.getRange(SCORE_RANGES[l]);
     var values = range.getValues();
     var bg = range.getBackgrounds();
     for (var j = 0; j < values.length; j++) {
       values[j][1] = '';            // clear stale ELO change first
-      // Clear any stale winner highlight on this row's name cells; a row with
-      // no winner this run must not stay green.
+      // Clear any stale winner highlight on this row's name cells and any stale
+      // typo flag on column J; a row with no winner / no typo this run must not
+      // stay highlighted.
       bg[j][0] = null;
+      bg[j][1] = null;
       bg[j][2] = null;
       var rowHasScores = values[j].length > 4 &&
         !isNaN(parseFloat(values[j][3])) && !isNaN(parseFloat(values[j][4]));
@@ -1119,6 +1248,112 @@ function updateRatingsFromSheet() {
       'These players had no rating and were skipped (add a rating to the Ratings sheet, then run again):\n' +
       unrated.join(', '));
   }
+}
+
+/**
+ * Re-sort / re-rank the Ratings tab by current rating (descending) after
+ * manual rating/name/email edits, without computing any ELO changes.
+ * Reuses writeRatingsTab() so there's only one sort/write path.
+ */
+function rerankRatings() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  if (!ratingsSheet) {
+    SpreadsheetApp.getUi().alert("Ratings sheet not found.");
+    return;
+  }
+  writeRatingsTab(ss, ratingsSheet, getCurrentRatings(ratingsSheet), {});
+  ss.toast('Ratings tab re-ranked.', 'Done', 3);
+}
+
+/**
+ * Sort the Ratings tab by rating (descending) and rewrite A-D (rank, name,
+ * rating, last-changed date) plus the email columns (CB primary, CE
+ * secondary) aligned to the new row order. ELO changes are applied by
+ * updateRatingsFromSheet() and passed in as `changes`; rerankRatings() passes
+ * an empty map so no rating value changes, only row order.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} ratingsSheet
+ * @param {Object} currentRatings name -> rating
+ * @param {Object} changes name -> ELO change for this run
+ * @return {Object} {outRows: Array<Array>, newRatings: Object}
+ */
+function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
+  // Build updated ratings list.
+  var newRatings = {};
+  var allNames = {};
+  for (var name in currentRatings) allNames[name] = true;
+  for (var name in changes) allNames[name] = true;
+
+  for (var name in allNames) {
+    var base = currentRatings[name] !== undefined ? currentRatings[name] : null;
+    if (base === null) continue; // unrated player: skip until admin assigns a rating
+    // Ratings live on the USATT quarter-point scale. ELO changes are already
+    // 0.25 multiples, so this is normally a no-op; it only snaps ratings that
+    // were hand-entered off-grid (e.g. 1000.10 -> 1000.00).
+    newRatings[name] = roundQuarter(base + (changes[name] || 0));
+  }
+
+  // Sort descending by rating.
+  var sortedNames = Object.keys(newRatings).sort(function (a, b) {
+    return newRatings[b] - newRatings[a];
+  });
+
+  var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+
+  // Preserve existing D-column dates; only players whose rating actually
+  // changed this run get today's date (D = "last date the rating changed").
+  var existingDates = {};
+  var curValues = ratingsSheet.getRange('A2:D').getValues();
+  for (var ci = 0; ci < curValues.length; ci++) {
+    var cName = String(curValues[ci][1]).trim();
+    if (cName !== '') existingDates[cName] = curValues[ci][3];
+  }
+
+  // Preserve player emails (CB = primary, CE = secondary) so they follow the
+  // players when rankings shuffle. Emails are keyed by name, not by row.
+  var emailsByName = {};
+  var emailValues = ratingsSheet.getRange('B2:CE').getValues();
+  for (var ei = 0; ei < emailValues.length; ei++) {
+    var eName = String(emailValues[ei][0]).trim();
+    if (eName === '') continue;
+    emailsByName[eName] = {
+      primary: emailValues[ei][78] !== undefined ? emailValues[ei][78] : '',
+      secondary: emailValues[ei][81] !== undefined ? emailValues[ei][81] : ''
+    };
+  }
+
+  // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
+  var outRows = [];
+  for (var i = 0; i < sortedNames.length; i++) {
+    var name = sortedNames[i];
+    var changed = (changes[name] || 0) !== 0;
+    var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
+    outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
+  }
+  if (outRows.length > 0) {
+    ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
+  }
+
+  // Re-write emails aligned to the new (sorted) row order so they stay with
+  // the right player. CB = primary, CE = secondary.
+  var hVals = [];
+  var kVals = [];
+  for (var ori = 0; ori < outRows.length; ori++) {
+    var on = String(outRows[ori][1]).trim();
+    var em = emailsByName[on] || { primary: '', secondary: '' };
+    hVals.push([em.primary || '']);
+    kVals.push([em.secondary || '']);
+  }
+  if (hVals.length > 0) {
+    ratingsSheet.getRange('CB2:CB' + (hVals.length + 1)).setValues(hVals);
+  }
+  if (kVals.length > 0) {
+    ratingsSheet.getRange('CE2:CE' + (kVals.length + 1)).setValues(kVals);
+  }
+
+  return { outRows: outRows, newRatings: newRatings };
 }
 
 function round2(v) {
@@ -1259,8 +1494,8 @@ function isSameDay(a, b) {
  * Manual USATT alignment for the club-kit spreadsheet.
  *
  * Run by the OPERATOR whenever he wants (typically after new USATT ratings are
- * submitted), e.g. via the "Equalize Ratings" button on the Ratings tab. This
- * is NOT an automatic/triggered job - the operator decides when.
+ * submitted), e.g. via the "Equalize Ratings" button on the System/Rules tab
+ * (cell B40). This is NOT an automatic/triggered job - the operator decides when.
  *
  * How it works:
  *   1. For each player with an Official USATT Rating (Ratings tab column F)
@@ -1271,7 +1506,7 @@ function isSameDay(a, b) {
  *   3. Shift EVERY player's club rating by that mean so official-rated players
  *      land as close as possible to their official rating (mean = least-squares
  *      optimal offset).
- *   4. Requires at least 3 valid official ratings; otherwise it skips and logs.
+ *   4. Requires at least 1 valid official rating; otherwise it skips and logs.
  *   5. Writes the shifted rating back to the Ratings tab (C/D).
  *   6. Applies the SAME uniform offset to every historical rating on the
  *      "Ratings Graph" tab (column C in the long/tidy Player|Date|Rating
@@ -1281,9 +1516,10 @@ function isSameDay(a, b) {
  *   7. Writes the result to an "Alignment Log" sheet for review/revert.
  *
  * Combined Ratings tab columns:
- *   A=rank  B=name  C=club rating  D=club rating date  E=Equalize button
+ *   A=rank  B=name  C=club rating  D=club rating date  E=Player Ratings Graph link
  *   F=USATT rating  G=USATT date earned  H=Show Inactive button
  *   I-J blank  K=Hide Inactive button  CB=primary emails  CE=secondary emails
+ *   (The Equalize button lives on the System/Rules tab at B40.)
  *
  * Staleness: a rating older than SETUP staleness years is VOID. It is NOT
  * deleted - it stays in the sheet but turns RED. Valid ratings are GREEN.
@@ -1338,8 +1574,8 @@ function alignToUSATT() {
   ratings.getRange('G2').setNote('Enter the date this USATT rating was ACHIEVED (not the date it was submitted). '
     + 'Ratings older than ' + stalenessYears + ' years turn red and are excluded from the annual USATT alignment.');
 
-  if (validCount < 3) {
-    var msg = 'Alignment skipped: only ' + validCount + ' player(s) with a valid (non-stale) official rating. Need at least 3.';
+  if (validCount < 1) {
+    var msg = 'Alignment skipped: only ' + validCount + ' player(s) with a valid (non-stale) official rating. Need at least 1.';
     Logger.log(msg);
     appendLog(ss, new Date(), null, 'SKIPPED', msg);
     ss.toast(msg, 'USATT Alignment', 5);
@@ -1355,15 +1591,17 @@ function alignToUSATT() {
       validNames.push(rows[i].name);
     }
   }
-  var offset = totalDiff / validCount;
+  // All ratings live on the USATT quarter-point scale (x.00/.25/.50/.75), so
+  // rounding each shifted rating is unnecessary as long as the offset itself is
+  // a quarter number: quarter - quarter is always on the grid. Round the offset
+  // once here, then apply it uniformly with no per-rating rounding.
+  var offset = roundQuarter(totalDiff / validCount);
 
   // Apply the shift to every club rating (including unrated-official players).
   var todayStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
   for (var i = 0; i < rows.length; i++) {
     if (isNaN(rows[i].club)) continue;
-    // USATT ratings live on a quarter-point scale (x.00/.25/.50/.75), so round
-    // every aligned rating to the nearest quarter.
-    var newRating = roundQuarter(rows[i].club - offset);
+    var newRating = rows[i].club - offset;
     ratings.getRange('C' + rows[i].row).setValue(newRating);
     ratings.getRange('D' + rows[i].row).setValue(todayStr);
   }
@@ -1382,12 +1620,137 @@ function alignToUSATT() {
 
   var applied = -offset;
   var summary = 'Applied USATT alignment offset of ' + round2(offset) +
-    ' (' + (applied < 0 ? '' : '+') + round2(applied) + ' to every rating, rounded to the nearest 0.25). ' +
+    ' (' + (applied < 0 ? '' : '+') + round2(applied) + ' to every rating; quarter-grid preserved). ' +
     'Historical ratings on the Ratings Graph tab (long/tidy layout, column C) shifted by the same offset to keep the chart continuous. ' +
     'Based on ' + validCount + ' valid official rating(s): ' + validNames.join(', ');
   Logger.log(summary);
   appendLog(ss, new Date(), round2(offset), 'APPLIED', summary);
   ss.toast('USATT alignment applied (offset ' + round2(-offset) + ').', 'Done', 5);
+}
+
+/**
+ * Open a modal dialog listing every past bump (USATT alignment runs and manual
+ * tweaks) with its date, and let the operator shift ALL ratings by a manually
+ * entered amount. The amount must be a quarter number; non-quarter input is
+ * rounded to the nearest 0.25. Reverting a past bump = applying its negative.
+ * All bumps are recorded in the "Alignment Log" sheet so the history shown in
+ * this dialog is self-maintaining.
+ */
+function tweakRatings() {
+  var html = HtmlService.createHtmlOutput(buildTweakDialogHtml())
+      .setWidth(480).setHeight(460);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Tweak / Revert Ratings');
+}
+
+function buildTweakDialogHtml() {
+  return '<!DOCTYPE html><html><head><base target="_top"><style>body{font-family:Arial} ' +
+    'table{border-collapse:collapse;width:100%} td,th{border:1px solid #ccc;padding:3px 6px;font-size:12px} ' +
+    'th{background:#f0f0f0} input{padding:5px;width:200px} button{margin-top:6px}</style></head><body>' +
+    '<h3>Tweak / Revert All Ratings</h3>' +
+    '<p>Enter a quarter amount (e.g. <b>12.50</b> or <b>-5.25</b>) to add to or subtract ' +
+    'from every rating. Non-quarter entries are rounded to the nearest 0.25. To revert a past ' +
+    'bump, apply its negative.</p>' +
+    '<input id="amount" type="text" placeholder="e.g. 12.50 or -5.25">' +
+    '<div><button id="applyBtn" onclick="doApply()">Apply</button>' +
+    '<button onclick="google.script.host.close()">Cancel</button></div>' +
+    '<div id="status"></div>' +
+    '<h3>Past bumps</h3>' +
+    '<div id="history"></div>' +
+    '<script>' +
+    'window.onload = function () { loadHistory(); };' +
+    'function loadHistory() {' +
+    '  google.script.run.withSuccessHandler(renderHistory).getBumpHistory();' +
+    '}' +
+    'function renderHistory(rows) {' +
+    '  var el = document.getElementById("history");' +
+    '  if (!rows || rows.length === 0) { el.innerHTML = "<i>No bumps recorded yet.</i>"; return; }' +
+    '  var html = "<table><tr><th>Date</th><th>Status</th><th>Amount</th></tr>";' +
+    '  for (var i = 0; i < rows.length; i++) {' +
+    '    var r = rows[i];' +
+    '    html += "<tr><td>" + r.date + "</td><td>" + r.status + "</td><td>" + r.amount + "</td></tr>";' +
+    '  }' +
+    '  html += "</table>";' +
+    '  el.innerHTML = html;' +
+    '}' +
+    'function doApply() {' +
+    '  var amt = document.getElementById("amount").value;' +
+    '  if (!amt || isNaN(parseFloat(amt))) {' +
+    '    document.getElementById("status").textContent = "Enter a number.";' +
+    '    return;' +
+    '  }' +
+    '  document.getElementById("applyBtn").disabled = true;' +
+    '  document.getElementById("status").textContent = "Applying...";' +
+    '  google.script.run.withSuccessHandler(onDone).applyTweak(amt);' +
+    '}' +
+    'function onDone(result) {' +
+    '  document.getElementById("applyBtn").disabled = false;' +
+    '  document.getElementById("status").textContent = result.message;' +
+    '  if (result.ok) loadHistory();' +
+    '}' +
+    '</script></body></html>';
+}
+
+/**
+ * Server side of the Tweak dialog: return every recorded bump (date, status,
+ * amount) newest-first from the Alignment Log sheet. Only rows that actually
+ * applied an offset (APPLIED / TWEAK) are listed; SKIPPED rows are omitted.
+ */
+function getBumpHistory() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var log = ss.getSheetByName(ALIGN_LOG_SHEET);
+  var bumps = [];
+  if (!log) return bumps;
+  var values = log.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    var status = String(values[i][2]);
+    if (status !== 'APPLIED' && status !== 'TWEAK') continue;
+    var amount = values[i][1] === '' || values[i][1] === null ? '' : round2(parseFloat(values[i][1]));
+    bumps.push({ date: values[i][0], status: status, amount: amount });
+  }
+  return bumps.reverse(); // newest first
+}
+
+/**
+ * Server side of the Tweak dialog: shift every club rating (Ratings tab C/D)
+ * and every historical rating (Rating History tab column C) by the entered
+ * amount. The amount is rounded to the nearest 0.25 (quarter grid); zero is
+ * rejected. The bump is appended to the Alignment Log for history/revert.
+ */
+function applyTweak(amountText) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratings = ss.getSheetByName(ALIGN_RATINGS_SHEET);
+  if (!ratings) return { ok: false, message: 'Ratings sheet not found.' };
+
+  var amount = roundQuarter(parseFloat(String(amountText).replace(/,/g, '').trim()));
+  if (isNaN(amount) || amount === 0) {
+    return { ok: false, message: 'Enter a non-zero quarter number.' };
+  }
+  var todayStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+
+  // Shift current club ratings and stamp D with today's date.
+  var values = ratings.getRange('A2:C').getValues();
+  var updated = 0;
+  for (var i = 0; i < values.length; i++) {
+    var name = String(values[i][1]).trim();
+    if (name === '') break;
+    var club = parseFloat(values[i][2]);
+    if (isNaN(club)) continue;
+    var row = i + 2;
+    ratings.getRange('C' + row).setValue(round2(club + amount));
+    ratings.getRange('D' + row).setValue(todayStr);
+    updated++;
+  }
+
+  // Shift historical ratings by the same amount so the chart stays continuous.
+  var graph = ss.getSheetByName(ALIGN_GRAPH_SHEET);
+  if (graph) shiftHistoricalRatings(graph, -amount);
+
+  var sign = amount > 0 ? '+' : '';
+  var summary = 'Manual tweak: ' + sign + round2(amount) + ' applied to every rating (' +
+    updated + ' player(s)); historical ratings shifted to keep the chart continuous.';
+  Logger.log(summary);
+  appendLog(ss, new Date(), round2(amount), 'TWEAK', summary);
+  return { ok: true, message: 'Applied ' + sign + round2(amount) + ' to ' + updated + ' player(s).' };
 }
 
 /**

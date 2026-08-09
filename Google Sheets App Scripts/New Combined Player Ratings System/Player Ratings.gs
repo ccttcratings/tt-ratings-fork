@@ -130,10 +130,10 @@ function showInactivePlayers() {
   if (rowCount > 0) {
     sheet.showRows(2, rowCount);
 
-    // Select the full block from Column A down through Column G to reset text
-    // to black (undo any fade).
-    var fullRange = sheet.getRange(2, 1, rowCount, 7);
-    fullRange.setFontColor("#000000");
+    // Reset the themed font colors back to black (undo any fade) for A-D and
+    // F-G. Column E is the Equalize button and must keep its own font color.
+    sheet.getRange(2, 1, rowCount, 4).setFontColor("#000000");
+    sheet.getRange(2, 6, rowCount, 2).setFontColor("#000000");
   }
 }
 
