@@ -107,7 +107,12 @@ class ELO:
 
         sign = 1 if game_score_diff > 0 else -1
         if abs(game_score_diff) == 2 and len(score_differentials) == 2:
-            game_score_diff = 3 * sign
+            is_higher_rated = rating_diff >= 0
+            is_winner = game_score_diff > 0
+            if not (is_higher_rated ^ is_winner):
+                game_score_diff = 3 * sign
+            else:
+                game_score_diff = 2 * sign
         elif abs(game_score_diff) == 1 and len(score_differentials) == 3:
             is_higher_rated = rating_diff >= 0
             is_winner = game_score_diff > 0
@@ -653,6 +658,51 @@ class GoogleSheet():
             exit(1)
         return self.scores
 
+    def flag_typo_rows(self, typo_rows):
+        """Paint column J red for each suspected-typo row so the operator can
+        find and fix them in the sheet. typo_rows is a list of (league_index,
+        row_within_league) tuples (league_index is 0-based)."""
+        if not typo_rows:
+            return
+        if self.sheet is None:
+            self.get_sheet()
+        try:
+            spreadsheet = self.sheet.get(spreadsheetId=self.SPREADSHEET_ID).execute()
+            sheet_ids = {}
+            for sh in spreadsheet.get('sheets', []):
+                sheet_ids[sh['properties']['title']] = sh['properties']['sheetId']
+            requests = []
+            for league, row_in_league in typo_rows:
+                if league >= len(self.score_ranges):
+                    continue
+                sheet_name = self.score_ranges[league].split('!')[0]
+                sheet_id = sheet_ids.get(sheet_name)
+                if sheet_id is None:
+                    continue
+                range_coords = self.score_ranges[league].split('!')[1]
+                start_row = int(re.search(r'\d+', range_coords.split(':')[0]).group())
+                row_num = start_row + row_in_league - 1  # 0-indexed
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_num,
+                            'endRowIndex': row_num + 1,
+                            'startColumnIndex': 9,   # column J (0-indexed)
+                            'endColumnIndex': 10
+                        },
+                        'cell': {'userEnteredFormat': {
+                            'backgroundColor': {'red': 1.0, 'green': 0.0, 'blue': 0.0}
+                        }},
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                })
+            if requests:
+                self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body={'requests': requests}).execute()
+        except HttpError as err:
+            print(f'Failed to flag typo rows, error: {err}')
+            exit(1)
+
     def get_all_ratings(self, allow_missing_dates=False):
         if self.sheet is None:
             self.get_sheet()
@@ -795,6 +845,78 @@ class GoogleSheet():
         except HttpError as err:
             print(f'Failed to update player emails: {err}')
 
+    def _padded_cell(self, text_val, blue):
+        # Right-justified text cell. A black run at index 0 keeps the
+        # visible text black; the trailing '.' is colored #c9daf8 (the
+        # D/E/F column background) so it is invisible but keeps real
+        # width on all platforms.
+        cell = {'userEnteredValue': {'stringValue': text_val},
+                'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'},
+                                      'horizontalAlignment': 'RIGHT'}}
+        if text_val:
+            runs = [{'startIndex': 0, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}}]
+            if text_val.endswith('.'):
+                runs.append({'startIndex': len(text_val) - 1, 'format': {'foregroundColor': blue}})
+            cell['textFormatRuns'] = runs
+        return cell
+
+    def reapply_rating_padding(self):
+        # Re-apply the invisible padding runs to the league rating blocks
+        # (D3:F8 / D20:F25 / D37:F42). Manual edits in Google Sheets strip
+        # textFormatRuns, so the trailing '.' renders black; this restores
+        # the #c9daf8 color without changing any values.
+        if self.sheet is None:
+            self.get_sheet()
+
+        blue = {'red': 0.7882353, 'green': 0.85490197, 'blue': 0.972549}
+
+        try:
+            spreadsheet = self.sheet.get(spreadsheetId=self.SPREADSHEET_ID).execute()
+            for rng in self.ratings_range:
+                sheet_name = rng.split('!')[0]
+                range_parts = rng.split('!')[1].split(':')
+                start_row = int(re.search(r'\d+', range_parts[0]).group())
+                end_row = int(re.search(r'\d+', range_parts[1]).group())
+                start_col = ord(range_parts[0][0]) - ord('A')  # D=3
+                end_col = ord(range_parts[1][0]) - ord('A') + 1  # F=5
+
+                sheet_id = None
+                for sheet in spreadsheet.get('sheets', []):
+                    if sheet['properties']['title'] == sheet_name:
+                        sheet_id = sheet['properties']['sheetId']
+                        break
+                if sheet_id is None:
+                    continue
+
+                result = self.sheet.values().get(
+                    spreadsheetId=self.SPREADSHEET_ID,
+                    range=rng).execute()
+                rows = result.get('values', [])
+
+                rows_data = []
+                for row in rows:
+                    vals = []
+                    for i in range(3):
+                        raw = row[i] if len(row) > i and row[i] not in (None, '') else ''
+                        text_val = str(raw)
+                        if text_val and not text_val.endswith('.'):
+                            text_val += '.'
+                        vals.append(text_val)
+                    rows_data.append({'values': [
+                        self._padded_cell(vals[0], blue),
+                        self._padded_cell(vals[1], blue),
+                        self._padded_cell(vals[2], blue),
+                    ]})
+
+                ucreq = {'requests': [{'updateCells': {
+                    'range': {'sheetId': sheet_id, 'startRowIndex': start_row - 1, 'endRowIndex': end_row,
+                              'startColumnIndex': start_col, 'endColumnIndex': end_col},
+                    'rows': rows_data,
+                    'fields': 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment'}}]}
+                self.sheet.batchUpdate(spreadsheetId=self.SPREADSHEET_ID, body=ucreq).execute()
+        except HttpError as err:
+            print(f'Failed to re-apply rating padding, error: {err}')
+
     def set_new_ratings(self, new_ratings: dict, rating_increased: dict, rating_decreased: dict, active_days,
                         match_rating_changes: dict = None, new_emails: dict = None):
         try:
@@ -878,35 +1000,20 @@ class GoogleSheet():
 
                 blue = {'red': 0.7882353, 'green': 0.85490197, 'blue': 0.972549}
 
-                def _padded_cell(text_val):
-                    # Right-justified text cell. A black run at index 0 keeps the
-                    # visible text black; the trailing '.' is colored #c9daf8 (the
-                    # D/E/F column background) so it is invisible but keeps real
-                    # width on all platforms.
-                    cell = {'userEnteredValue': {'stringValue': text_val},
-                            'userEnteredFormat': {'numberFormat': {'type': 'TEXT', 'pattern': '@'},
-                                                  'horizontalAlignment': 'RIGHT'}}
-                    if text_val:
-                        runs = [{'startIndex': 0, 'format': {'foregroundColor': {'red': 0, 'green': 0, 'blue': 0}}}]
-                        if text_val.endswith('.'):
-                            runs.append({'startIndex': len(text_val) - 1, 'format': {'foregroundColor': blue}})
-                        cell['textFormatRuns'] = runs
-                    return cell
-
                 rows_data = []
                 for row in values:
                     if not row[1]:
                         rows_data.append({'values': [
-                            _padded_cell(row[0]),
-                            _padded_cell(''),
-                            _padded_cell(row[2]),
+                            self._padded_cell(row[0], blue),
+                            self._padded_cell('', blue),
+                            self._padded_cell(row[2], blue),
                         ]})
                         continue
                     text_val = row[1][1:]  # drop leading apostrophe
                     rows_data.append({'values': [
-                        _padded_cell(row[0]),
-                        _padded_cell(text_val),
-                        _padded_cell(row[2]),
+                        self._padded_cell(row[0], blue),
+                        self._padded_cell(text_val, blue),
+                        self._padded_cell(row[2], blue),
                     ]})
 
                 ucreq = {'requests': [{'updateCells': {
@@ -923,7 +1030,8 @@ class GoogleSheet():
                     league_scores = []
                     try:
                         result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ID,
-                                                         range=self.score_ranges[l - 1]).execute()
+                                                         range=self.score_ranges[l - 1],
+                                                         valueRenderOption='UNFORMATTED_VALUE').execute()
                         league_scores = result.get('values', [])
                     except HttpError:
                         pass
@@ -968,13 +1076,15 @@ class GoogleSheet():
                                 # wrongly inherit the ELO change from a different match.
                                 has_scores = len(row) > 4 and isinstance(row[3], (int, float)) \
                                     and isinstance(row[4], (int, float))
-                                match_key = (p1_name, p2_name)
+                                match_key = (p1_name, p2_name, _match_key_tuple(row))
+                                is_typo = _is_suspected_typo(row)
                                 # Clear any stale winner highlight on this row's name cells
-                                # (columns I and K); a row with no winner this run must not
-                                # stay green. The green request below (if any) is appended
-                                # after these clears, so it wins for the actual winner.
+                                # (columns I and K) and any stale typo flag on column J; a row
+                                # with no winner / no typo this run must not stay highlighted.
+                                # The green/red request below (if any) is appended after these
+                                # clears, so it wins for the actual winner / typo flag.
                                 if sheet_id is not None:
-                                    for clear_col in (8, 10):
+                                    for clear_col in (8, 9, 10):
                                         format_requests.append({
                                             'repeatCell': {
                                                 'range': {
@@ -988,7 +1098,32 @@ class GoogleSheet():
                                                 'fields': 'userEnteredFormat.backgroundColor'
                                             }
                                         })
-                                if has_scores and match_key in match_rating_changes:
+                                if is_typo:
+                                    # Flag the row's column J in red and exchange no points.
+                                    new_row[1] = ''
+                                    if sheet_id is not None:
+                                        format_requests.append({
+                                            'repeatCell': {
+                                                'range': {
+                                                    'sheetId': sheet_id,
+                                                    'startRowIndex': start_row + row_idx,
+                                                    'endRowIndex': start_row + row_idx + 1,
+                                                    'startColumnIndex': 9,  # Column J (0-indexed)
+                                                    'endColumnIndex': 10
+                                                },
+                                                'cell': {
+                                                    'userEnteredFormat': {
+                                                        'backgroundColor': {
+                                                            'red': 1.0,
+                                                            'green': 0.0,
+                                                            'blue': 0.0
+                                                        }
+                                                    }
+                                                },
+                                                'fields': 'userEnteredFormat.backgroundColor'
+                                            }
+                                        })
+                                elif has_scores and match_key in match_rating_changes:
                                     p1_change, p2_change = match_rating_changes[match_key]
                                     # Put P1's change in column I (index 1) - absolute value, 2 decimal places
                                     new_row[1] = f'{abs(p1_change):.2f}'
@@ -1311,6 +1446,101 @@ class GoogleSheet():
 
         print(f'Updated Ratings History tab for {len(sorted_players)} players across {len(dated)} dated column(s).')
 
+def _find_typo_rows(league_scores):
+    """Return a list of (flat_index, row) for every score row that looks like a
+    suspected typo. The flat index counts across all leagues' score ranges in
+    order (15 rows each), matching get_scores()/self.scores layout."""
+    return [(i, row) for i, row in enumerate(league_scores) if _is_suspected_typo(row)]
+
+
+def _is_suspected_typo(row):
+    """Return True when a score row looks like a data-entry typo rather than a
+    real match. Flags, per the operator's rules:
+      - A game pair with exactly one of its two scores filled (e.g. 11-<blank>).
+      - A blank score cell in the middle of a row that has scores after it
+        (an interior gap), while trailing blanks for an unfinished match are OK.
+      - A completed game where the winner did not reach 11.
+      - A completed game where the winner scored more than 11 but did not win
+        by exactly two (deuce: once 10-10 is reached you must win by 2).
+    A row must have both player names and at least one game score to be flagged.
+    """
+    if len(row) < 3:
+        return False
+    p1_name = str(row[0]).strip() if row[0] else ''
+    p2_name = str(row[2]).strip() if row[2] else ''
+    if p1_name == '' or p2_name == '':
+        return False
+
+    def is_num(v):
+        if isinstance(v, bool):
+            return False
+        if isinstance(v, (int, float)):
+            return True
+        if isinstance(v, str):
+            s = v.strip()
+            if s == '':
+                return False
+            try:
+                float(s)
+                return True
+            except ValueError:
+                return False
+        return False
+
+    def parse(v):
+        return float(v) if is_num(v) else None
+
+    # Collect the game pairs: indices 3..12 -> (L,M),(N,O),(P,Q),(R,S),(T,U).
+    pairs = []
+    for k in range(3, min(len(row), 13), 2):
+        s1 = parse(row[k])
+        s2 = parse(row[k + 1]) if k + 1 < len(row) else None
+        pairs.append((s1, s2))
+
+    # Interior gap: a fully-blank pair followed later by a pair with scores.
+    gap = False
+    for i in range(len(pairs)):
+        filled_here = pairs[i][0] is not None or pairs[i][1] is not None
+        if filled_here:
+            if gap:
+                return True
+        else:
+            gap = True
+
+    for i, (s1, s2) in enumerate(pairs):
+        # Half-filled pair (one side blank, other filled).
+        if (s1 is None) != (s2 is None):
+            return True
+        if s1 is None:
+            continue  # both blank (trailing unfinished space)
+        hi, lo = max(s1, s2), min(s1, s2)
+        if hi < 11:
+            return True  # neither player reached 11
+        if hi > 11 and (hi - lo) != 2:
+            return True  # deuce must be won by exactly two
+        if hi == 11 and lo > 9:
+            return True  # 11-10 is impossible; deuce would continue
+    return False
+
+
+def _match_key_tuple(row):
+    """Canonical tuple of a score row's game cells (L..U, indices 3-12) used to
+    key individual matches. Blank cells normalize to '', numeric cells to float,
+    so a re-read (UNFORMATTED_VALUE) always reproduces the same key. This lets
+    two rows with the same player pair (e.g. a rematch) map to their own match
+    instead of colliding on a single (p1, p2) key."""
+    cells = []
+    for v in row[3:13]:
+        if v is None or (isinstance(v, str) and v.strip() == ''):
+            cells.append('')
+        else:
+            try:
+                cells.append(float(v))
+            except (TypeError, ValueError):
+                cells.append(str(v).strip())
+    return tuple(cells)
+
+
 def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
     rating_changes = {}
     match_rating_changes = {}  # Store individual match rating changes
@@ -1321,6 +1551,12 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
         p1_name = row[0]
         p2_name = row[2] if len(row) > 2 else ''
         if p1_name == '' or p2_name == '':
+            continue
+
+        # Reject rows that look like data-entry typos: do not exchange points.
+        if _is_suspected_typo(row):
+            if print_out:
+                print(f'SUSPECTED TYPO (rejected, no points exchanged): {p1_name} vs {p2_name}')
             continue
 
         p1_raw = current_ratings.get(p1_name, 1000.0)
@@ -1365,7 +1601,7 @@ def calculate_new_ratings(current_ratings, league_scores, date_str, print_out):
                 new_p1_rating = p1.add_match_against(p2, score_diffs_p1vp2, print_out)
                 new_p2_rating = p2.add_match_against(p1, score_diffs_p2vp1, print_out)
 
-                match_key = (p1_name, p2_name)
+                match_key = (p1_name, p2_name, _match_key_tuple(row))
                 match_rating_changes[match_key] = (new_p1_rating - p1_rating, new_p2_rating - p2_rating)
 
                 if p1_name not in rating_changes:
@@ -1436,6 +1672,38 @@ def new_league(date_str, google_cred, active_days, execute, print_out):
     mongodb = MongoDB(date_str)
     league_scores = google_sheet.get_scores()
     league_players = google_sheet.get_league_players()
+
+    # Flag any suspected score typos before calculating. When found, paint their
+    # column-J cell red and pause so the operator can fix them in the sheet,
+    # then re-read and re-check until the data is clean (or the operator aborts
+    # with "q"). Only the execute path mutates the sheet, so this loop only runs
+    # when we are about to update.
+    if execute:
+        while True:
+            typo_rows = _find_typo_rows(league_scores)
+            if not typo_rows:
+                break
+            print(f'Suspected score typos found ({len(typo_rows)} row(s)):')
+            for flat_idx, row in typo_rows:
+                league_idx = flat_idx // 15
+                row_in_league = flat_idx % 15
+                sheet_row = [3, 20, 37][league_idx] + row_in_league
+                p1 = row[0] if len(row) > 0 else ''
+                p2 = row[2] if len(row) > 2 else ''
+                print(f'  League {league_idx + 1}, sheet row {sheet_row}: "{p1}" vs "{p2}"')
+            google_sheet.flag_typo_rows([(flat_idx // 15, flat_idx % 15) for flat_idx, _ in typo_rows])
+            while True:
+                try:
+                    answer = input('Fix the flagged rows in the sheet, then press Enter to re-check (or "q" to abort): ')
+                except KeyboardInterrupt:
+                    print('\nAborted - no ratings calculated.')
+                    return
+                if answer.strip().lower() == 'q':
+                    print('Aborted - no ratings calculated.')
+                    return
+                break
+            google_sheet.scores = []
+            league_scores = google_sheet.get_scores()
 
     current_ratings = mongodb.get_current_ratings()
     missing_players = league_players - current_ratings.keys()
@@ -1745,6 +2013,11 @@ def update_database_from_sheet(date_str, google_cred, active_days, execute, prin
         # Restore player emails with new rankings
         all_player_names = [name for name, _ in sorted_players]
         google_sheet.update_player_emails_in_sheet(player_emails, all_player_names, new_emails=None)
+
+        # Manual edits in Google Sheets strip textFormatRuns, so re-apply the
+        # invisible trailing '.' padding to the league rating blocks.
+        print('Re-applying rating padding...')
+        google_sheet.reapply_rating_padding()
         print('All done!')
     else:
         print('No execute flag detected, database and spreadsheet will not be updated.')

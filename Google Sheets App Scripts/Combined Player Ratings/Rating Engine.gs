@@ -33,6 +33,7 @@ var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
 var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
 var LEAGUE_RATING_RANGES = ['D3:F8', 'D20:F25', 'D37:F42'];
 var LEAGUE_START_ROWS = [3, 20, 37];
+var POINT_WINNER_RANGES = ['D12', 'D29', 'D46'];
 
 function getCurrentRatings(sheet) {
   var values = sheet.getRange('A2:D').getValues();
@@ -76,6 +77,12 @@ function parseScoresRow(row) {
   };
 }
 
+function isSuspectedTypo(row) {
+  // Implemented in Player Ratings.gs (always deployed, both CCTTC and combined
+  // systems) — call it through the global scope so this file never shadows it.
+  return globalThis.isSuspectedTypo(row);
+}
+
 function updateRatingsFromSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
@@ -91,6 +98,17 @@ function updateRatingsFromSheet() {
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
   if (!ratingsSheet) {
     SpreadsheetApp.getUi().alert("Ratings sheet not found.");
+    return;
+  }
+
+  // Typo gate: check for suspected score typos BEFORE computing ratings. If any
+  // are found, flag their J cells red and open a modeless dialog so the operator
+  // can fix them in the sheet, then click Re-check; once the data is clean the
+  // same run continues automatically (typoRecheck -> updateRatingsFromSheet).
+  var typos = scanForTypos(sheet);
+  if (typos.length > 0) {
+    flagTypoRows(sheet, typos);
+    showTypoDialog("updateRatings", sheetName, typos);
     return;
   }
 
@@ -138,78 +156,11 @@ function updateRatingsFromSheet() {
     Logger.log('Players needing an initial rating in the Ratings sheet: ' + unrated.join(', '));
   }
 
-  // Build updated ratings list.
-  var newRatings = {};
-  var allNames = {};
-  for (var name in currentRatings) allNames[name] = true;
-  for (var name in changes) allNames[name] = true;
-
-  for (var name in allNames) {
-    var base = currentRatings[name] !== undefined ? currentRatings[name] : null;
-    if (base === null) continue; // unrated player: skip until admin assigns a rating
-    // Ratings live on the USATT quarter-point scale. ELO changes are already
-    // 0.25 multiples, so this is normally a no-op; it only snaps ratings that
-    // were hand-entered off-grid (e.g. 1000.10 -> 1000.00).
-    newRatings[name] = roundQuarter(base + (changes[name] || 0));
-  }
-
-  // Sort descending by rating.
-  var sortedNames = Object.keys(newRatings).sort(function (a, b) {
-    return newRatings[b] - newRatings[a];
-  });
-
+  // Sort and write the Ratings tab (shared with rerankRatings()).
+  var result = writeRatingsTab(ss, ratingsSheet, currentRatings, changes);
+  var outRows = result.outRows;
+  var newRatings = result.newRatings;
   var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
-
-  // Preserve existing D-column dates; only players whose rating actually
-  // changed this run get today's date (D = "last date the rating changed").
-  var existingDates = {};
-  var curValues = ratingsSheet.getRange('A2:D').getValues();
-  for (var ci = 0; ci < curValues.length; ci++) {
-    var cName = String(curValues[ci][1]).trim();
-    if (cName !== '') existingDates[cName] = curValues[ci][3];
-  }
-
-  // Preserve player emails (CB = primary, CE = secondary) so they follow the
-  // players when rankings shuffle. Emails are keyed by name, not by row.
-  var emailsByName = {};
-  var emailValues = ratingsSheet.getRange('B2:CE').getValues();
-  for (var ei = 0; ei < emailValues.length; ei++) {
-    var eName = String(emailValues[ei][0]).trim();
-    if (eName === '') continue;
-    emailsByName[eName] = {
-      primary: emailValues[ei][78] !== undefined ? emailValues[ei][78] : '',
-      secondary: emailValues[ei][81] !== undefined ? emailValues[ei][81] : ''
-    };
-  }
-
-  // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
-  var outRows = [];
-  for (var i = 0; i < sortedNames.length; i++) {
-    var name = sortedNames[i];
-    var changed = (changes[name] || 0) !== 0;
-    var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
-    outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
-  }
-  if (outRows.length > 0) {
-    ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
-  }
-
-  // Re-write emails aligned to the new (sorted) row order so they stay with
-  // the right player. CB = primary, CE = secondary.
-  var hVals = [];
-  var kVals = [];
-  for (var ori = 0; ori < outRows.length; ori++) {
-    var on = String(outRows[ori][1]).trim();
-    var em = emailsByName[on] || { primary: '', secondary: '' };
-    hVals.push([em.primary || '']);
-    kVals.push([em.secondary || '']);
-  }
-  if (hVals.length > 0) {
-    ratingsSheet.getRange('CB2:CB' + (hVals.length + 1)).setValues(hVals);
-  }
-  if (kVals.length > 0) {
-    ratingsSheet.getRange('CE2:CE' + (kVals.length + 1)).setValues(kVals);
-  }
 
   // Participating players = everyone who appeared in a scored match this run.
   // Only these get a Ratings Graph entry for today; non-participants keep
@@ -316,16 +267,6 @@ function updateRatingsFromSheet() {
           }
         }]
       }, ss.getId());
-      // Diagnostic: confirm nothing in D/E/F came back as a formula ('=' prefix).
-      var check = sheet.getRange(LEAGUE_RATING_RANGES[l]).getValues();
-      for (var ci = 0; ci < check.length; ci++) {
-        for (var cj = 0; cj < check[ci].length; cj++) {
-          if (String(check[ci][cj]).charAt(0) === '=') {
-            Logger.log('Engine: WARNING - ' + LEAGUE_RATING_RANGES[l] + ' cell ' +
-              ci + ',' + cj + ' stored as formula: ' + check[ci][cj]);
-          }
-        }
-      }
     } else if (typeof Sheets === 'undefined') {
       SpreadsheetApp.getUi().alert(
         'Enable the "Google Sheets API" advanced service first: in the Apps Script editor, ' +
@@ -334,19 +275,52 @@ function updateRatingsFromSheet() {
     }
   }
 
-  // Write ELO change into column J (index 1) of each score row, and color the
+  // Write the highest point winner for each league to D12/D29/D46: the player
+  // in that league (column C) whose rating gain this run is the biggest.
+  for (var l = 0; l < 3; l++) {
+    var pwPlayerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
+    var pwWinners = [];
+    var pwMaxChange = null;
+    for (var j = 0; j < pwPlayerValues.length; j++) {
+      var pwName = String(pwPlayerValues[j][0]).trim();
+      if (pwName === '') continue;
+      var pwChange = changes[pwName] !== undefined ? changes[pwName] : 0;
+      if (pwMaxChange === null || pwChange > pwMaxChange) {
+        pwMaxChange = pwChange;
+        pwWinners = [pwName];
+      } else if (pwChange === pwMaxChange) {
+        pwWinners.push(pwName);
+      }
+    }
+    if (pwMaxChange === null || pwWinners.length === 0) continue;
+    // On a tie, sort by current rating (highest first), mirroring the Python engine.
+    pwWinners.sort(function (a, b) {
+      var ra = newRatings[a] !== undefined ? newRatings[a] : 0;
+      var rb = newRatings[b] !== undefined ? newRatings[b] : 0;
+      return rb - ra;
+    });
+    var pwWinnerStr = pwWinners.join(', ');
+    sheet.getRange(POINT_WINNER_RANGES[l]).setValue(pwWinnerStr);
+    Logger.log('League ' + (l + 1) + ' highest point winner: ' + pwWinnerStr +
+      ' (+' + pwMaxChange.toFixed(2) + ')');
+  }
+
+  // Write ELO change into column J (index 1) of each score row and color the
   // winner's name cell green (column I for a P1 win, column K for a P2 win).
-  // Only rows that actually carry game scores get a change; an empty row with
-  // the same player pair must NOT inherit another match's change.
+  // Suspected typos are caught by the gate before this loop runs. Only rows
+  // that actually carry game scores get a change; an empty row with the same
+  // player pair must NOT inherit another match's change.
   for (var l = 0; l < 3; l++) {
     var range = sheet.getRange(SCORE_RANGES[l]);
     var values = range.getValues();
     var bg = range.getBackgrounds();
     for (var j = 0; j < values.length; j++) {
       values[j][1] = '';            // clear stale ELO change first
-      // Clear any stale winner highlight on this row's name cells; a row with
-      // no winner this run must not stay green.
+      // Clear any stale winner highlight on this row's name cells and any stale
+      // typo flag on column J; a row with no winner / no typo this run must not
+      // stay highlighted.
       bg[j][0] = null;
+      bg[j][1] = null;
       bg[j][2] = null;
       var rowHasScores = values[j].length > 4 &&
         !isNaN(parseFloat(values[j][3])) && !isNaN(parseFloat(values[j][4]));
@@ -376,6 +350,112 @@ function updateRatingsFromSheet() {
       'These players had no rating and were skipped (add a rating to the Ratings sheet, then run again):\n' +
       unrated.join(', '));
   }
+}
+
+/**
+ * Re-sort / re-rank the Ratings tab by current rating (descending) after
+ * manual rating/name/email edits, without computing any ELO changes.
+ * Reuses writeRatingsTab() so there's only one sort/write path.
+ */
+function rerankRatings() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  if (!ratingsSheet) {
+    SpreadsheetApp.getUi().alert("Ratings sheet not found.");
+    return;
+  }
+  writeRatingsTab(ss, ratingsSheet, getCurrentRatings(ratingsSheet), {});
+  ss.toast('Ratings tab re-ranked.', 'Done', 3);
+}
+
+/**
+ * Sort the Ratings tab by rating (descending) and rewrite A-D (rank, name,
+ * rating, last-changed date) plus the email columns (CB primary, CE
+ * secondary) aligned to the new row order. ELO changes are applied by
+ * updateRatingsFromSheet() and passed in as `changes`; rerankRatings() passes
+ * an empty map so no rating value changes, only row order.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} ratingsSheet
+ * @param {Object} currentRatings name -> rating
+ * @param {Object} changes name -> ELO change for this run
+ * @return {Object} {outRows: Array<Array>, newRatings: Object}
+ */
+function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
+  // Build updated ratings list.
+  var newRatings = {};
+  var allNames = {};
+  for (var name in currentRatings) allNames[name] = true;
+  for (var name in changes) allNames[name] = true;
+
+  for (var name in allNames) {
+    var base = currentRatings[name] !== undefined ? currentRatings[name] : null;
+    if (base === null) continue; // unrated player: skip until admin assigns a rating
+    // Ratings live on the USATT quarter-point scale. ELO changes are already
+    // 0.25 multiples, so this is normally a no-op; it only snaps ratings that
+    // were hand-entered off-grid (e.g. 1000.10 -> 1000.00).
+    newRatings[name] = roundQuarter(base + (changes[name] || 0));
+  }
+
+  // Sort descending by rating.
+  var sortedNames = Object.keys(newRatings).sort(function (a, b) {
+    return newRatings[b] - newRatings[a];
+  });
+
+  var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+
+  // Preserve existing D-column dates; only players whose rating actually
+  // changed this run get today's date (D = "last date the rating changed").
+  var existingDates = {};
+  var curValues = ratingsSheet.getRange('A2:D').getValues();
+  for (var ci = 0; ci < curValues.length; ci++) {
+    var cName = String(curValues[ci][1]).trim();
+    if (cName !== '') existingDates[cName] = curValues[ci][3];
+  }
+
+  // Preserve player emails (CB = primary, CE = secondary) so they follow the
+  // players when rankings shuffle. Emails are keyed by name, not by row.
+  var emailsByName = {};
+  var emailValues = ratingsSheet.getRange('B2:CE').getValues();
+  for (var ei = 0; ei < emailValues.length; ei++) {
+    var eName = String(emailValues[ei][0]).trim();
+    if (eName === '') continue;
+    emailsByName[eName] = {
+      primary: emailValues[ei][78] !== undefined ? emailValues[ei][78] : '',
+      secondary: emailValues[ei][81] !== undefined ? emailValues[ei][81] : ''
+    };
+  }
+
+  // Write to Ratings sheet (A=rank, B=name, C=rating, D=date).
+  var outRows = [];
+  for (var i = 0; i < sortedNames.length; i++) {
+    var name = sortedNames[i];
+    var changed = (changes[name] || 0) !== 0;
+    var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
+    outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
+  }
+  if (outRows.length > 0) {
+    ratingsSheet.getRange('A2:D' + (outRows.length + 1)).setValues(outRows);
+  }
+
+  // Re-write emails aligned to the new (sorted) row order so they stay with
+  // the right player. CB = primary, CE = secondary.
+  var hVals = [];
+  var kVals = [];
+  for (var ori = 0; ori < outRows.length; ori++) {
+    var on = String(outRows[ori][1]).trim();
+    var em = emailsByName[on] || { primary: '', secondary: '' };
+    hVals.push([em.primary || '']);
+    kVals.push([em.secondary || '']);
+  }
+  if (hVals.length > 0) {
+    ratingsSheet.getRange('CB2:CB' + (hVals.length + 1)).setValues(hVals);
+  }
+  if (kVals.length > 0) {
+    ratingsSheet.getRange('CE2:CE' + (kVals.length + 1)).setValues(kVals);
+  }
+
+  return { outRows: outRows, newRatings: newRatings };
 }
 
 function round2(v) {
