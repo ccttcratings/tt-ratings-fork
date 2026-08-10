@@ -39,7 +39,6 @@ function hideInactivePlayers() {
   // over weeks 9-16 then vanish completely on day 142.
   var dateValues = sheet.getRange("D2:D").getValues();
   var today = new Date();
-  var cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 142);
 
   // Real player count: the first empty name ends the list. Sizing every range
   // to this (instead of the sheet's last row) skips hundreds of empty rows.
@@ -68,7 +67,10 @@ function hideInactivePlayers() {
   var hideCount = 0;
   for (var i = 0; i < playerCount; ++i) {
     var lastDate = parseDateValue(dateValues[i][0]);
-    var shouldHide = !lastDate || lastDate < cutoff;
+    // Hide at day 142 exactly (>= matches the "vanish on day 142" rule, so a
+    // player whose date equals the cutoff is not left stranded as black text).
+    var daysInactive = lastDate ? Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
+    var shouldHide = daysInactive === null || daysInactive >= 142;
 
     if (shouldHide) {
       // Hidden rows keep their current colors (invisible either way).
@@ -83,8 +85,7 @@ function hideInactivePlayers() {
     var colorPeach = "#000000";
     var colorBlue = "#000000";
 
-    if (lastDate) {
-      var daysInactive = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysInactive !== null) {
       var fade = getFadeColors(daysInactive);
       if (fade) {
         colorPurple = fade[0]; colorPeach = fade[1]; colorBlue = fade[2];

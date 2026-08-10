@@ -224,14 +224,14 @@
           responsive: true,
           maintainAspectRatio: false,
           interaction: {
-            mode: 'point',
+            mode: 'nearest',
             intersect: false
           },
           onClick: onCanvasClick,
           plugins: {
             legend: { display: false },
             tooltip: {
-              mode: 'point',
+              mode: 'nearest',
               intersect: false,
               callbacks: {
                 title: function (items) {
@@ -262,20 +262,76 @@
       });
     }
 
+    function distToSegmentSq(px, py, ax, ay, bx, by) {
+      var dx = bx - ax;
+      var dy = by - ay;
+      var len2 = dx * dx + dy * dy;
+      if (len2 === 0) return (px - ax) * (px - ax) + (py - ay) * (py - ay);
+      var t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+      var cx = ax + t * dx;
+      var cy = ay + t * dy;
+      return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+    }
+
     function onCanvasClick(evt) {
-      var els = state.chart.getElementsAtEventForMode(evt, 'point', { intersect: false }, false);
-      if (els && els.length) {
-        var el = els[0];
-        state.active = { di: el.datasetIndex, idx: el.index };
-        state.chart.tooltip.setActiveElements([{ datasetIndex: el.datasetIndex, index: el.index }], evt);
-        state.chart.update();
-        setTimeout(function () {
-          if (state.active) {
-            state.active = null;
-            state.chart.update();
+      var clickX = evt.x;
+      var clickY = evt.y;
+
+      var bestDi = -1;
+      var bestIdx = -1;
+      var bestLineDist = Infinity;
+
+      for (var di = 0; di < state.chart.data.datasets.length; di++) {
+        var ds = state.chart.data.datasets[di];
+        if (ds.hidden) continue;
+
+        var els = state.chart.getDatasetMeta(di).data;
+        if (!els.length) continue;
+
+        var lineDist = Infinity;
+        var nodeDist = Infinity;
+        var nodeIdx = -1;
+
+        for (var j = 0; j < els.length; j++) {
+          var el = els[j];
+          if (el.skip) continue;
+          var px = el.x;
+          var py = el.y;
+
+          var dNode = (clickX - px) * (clickX - px) + (clickY - py) * (clickY - py);
+          if (dNode < nodeDist) {
+            nodeDist = dNode;
+            nodeIdx = el.index;
           }
-        }, 2000);
+
+          if (j > 0) {
+            var prev = els[j - 1];
+            if (prev.skip) continue;
+            var dSeg = distToSegmentSq(clickX, clickY, prev.x, prev.y, px, py);
+            if (dSeg < lineDist) lineDist = dSeg;
+          } else {
+            if (dNode < lineDist) lineDist = dNode;
+          }
+        }
+
+        if (lineDist < bestLineDist) {
+          bestLineDist = lineDist;
+          bestDi = di;
+          bestIdx = nodeIdx;
+        }
       }
+
+      if (bestDi === -1) return;
+
+      state.active = { di: bestDi, idx: bestIdx };
+      state.chart.tooltip.setActiveElements([{ datasetIndex: bestDi, index: bestIdx }], evt);
+      state.chart.render();
+      setTimeout(function () {
+        if (state.active) {
+          state.active = null;
+          state.chart.render();
+        }
+      }, 2000);
     }
 
     function visibleCount() {
