@@ -17,6 +17,7 @@
       --accent: #0366d6;
       --peach: #fce5cd;
       --peach-light: #fdf1e5;
+      --border-strong: #c9ad8a;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; }
@@ -33,7 +34,7 @@
     header {
       padding: 12px 16px;
       background: var(--peach-light);
-      border-bottom: 1px solid var(--border);
+      border-bottom: 2px solid var(--border-strong);
       display: flex;
       align-items: baseline;
       gap: 12px;
@@ -49,7 +50,7 @@
       width: 240px;
       min-width: 200px;
       background: var(--peach-light);
-      border-right: 1px solid var(--border);
+      border-right: 2px solid var(--border-strong);
       overflow-y: auto;
       padding: 10px;
     }
@@ -63,7 +64,7 @@
       padding: 6px 8px;
       font-size: 12px;
       font-weight: 700;
-      border: 1px solid var(--border);
+      border: 2px solid var(--border-strong);
       border-radius: 6px;
       background: var(--peach);
       cursor: pointer;
@@ -103,6 +104,7 @@
       padding: 14px;
       min-width: 0;
       background: var(--peach);
+      border-bottom: 2px solid var(--border-strong);
     }
     #chartBox { position: relative; height: 100%; width: 100%; }
     #chartBox canvas { position: absolute; inset: 0; }
@@ -121,12 +123,34 @@
       color: var(--muted);
       font-size: 14px;
     }
+    @media (max-width: 760px) {
+      header {
+        justify-content: center;
+        padding: 10px;
+      }
+      header h1 { font-size: 18px; text-align: center; }
+      #body { flex-direction: column; }
+      #sidebar {
+        width: 100%;
+        min-width: 0;
+        border-right: none;
+        border-bottom: 2px solid var(--border-strong);
+      }
+      #sidebar .toolbar { flex-wrap: wrap; }
+      #names {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      #names .player-row { width: calc(50% - 4px); }
+      #chartWrap { padding: 10px; }
+    }
   </style>
 </head>
 <body>
   <div id="app">
     <header>
-      <h1>Player Ratings Over Time</h1>
+      <h1>CCTTC Player Ratings Graph</h1>
     </header>
     <div id="body">
       <div id="sidebar">
@@ -150,6 +174,7 @@
     var LS_KEY = 'ttRatingsGraphHidden';
     var DEFAULT_RADIUS = 2;
     var HOVER_RADIUS = 5;
+    var CLICK_TOL = 30; // max px from a line for a click to count as selecting it
 
     var state = {
       roster: [],
@@ -189,6 +214,90 @@
       return Number.isInteger(v) ? String(v) : v.toFixed(1);
     }
 
+    var customXAxisPlugin = {
+      id: 'customXAxis',
+      beforeDatasetsDraw: function (chart) {
+        var area = chart.chartArea;
+        var xs = chart.scales.x;
+        if (!area || !xs) return;
+        var cfg = chart.options.plugins.customXAxis || {};
+        var ctx = chart.ctx;
+        var ticks = xs.ticks || [];
+        ctx.save();
+        ctx.strokeStyle = cfg.frameColor || 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+        ctx.strokeStyle = cfg.yearColor || 'rgba(0,0,0,0.55)';
+        ctx.lineWidth = 2;
+        for (var i = 1; i < ticks.length; i++) {
+          var d = new Date(ticks[i].value);
+          if (d.getMonth() !== 0) continue;
+          var px = xs.getPixelForValue(ticks[i].value);
+          if (px < area.left || px > area.right) continue;
+          ctx.beginPath();
+          ctx.moveTo(px, area.top);
+          ctx.lineTo(px, area.bottom);
+          ctx.stroke();
+        }
+        ctx.restore();
+      },
+      afterDatasetsDraw: function (chart) {
+        var area = chart.chartArea;
+        var xs = chart.scales.x;
+        if (!area || !xs) return;
+        var cfg = chart.options.plugins.customXAxis || {};
+        var ctx = chart.ctx;
+        var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        var ticks = xs.ticks || [];
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#6a737d';
+        for (var i = 0; i < ticks.length; i++) {
+          var px0 = xs.getPixelForValue(ticks[i].value);
+          var px1 = i + 1 < ticks.length
+            ? xs.getPixelForValue(ticks[i + 1].value)
+            : px0 + (px0 - xs.getPixelForValue(ticks[i - 1].value));
+          var mid = (px0 + px1) / 2;
+          if (mid < area.left || mid > area.right) continue;
+          if (px1 - px0 < 45) continue;
+          ctx.fillText(MON[new Date(ticks[i].value).getMonth()], mid, area.bottom + 9);
+        }
+        var years = [];
+        for (var k = 0; k < ticks.length; k++) {
+          var y = new Date(ticks[k].value).getFullYear();
+          if (years.indexOf(y) === -1) years.push(y);
+        }
+        ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#24292f';
+        for (var m = 0; m < years.length; m++) {
+          var s0 = Math.max(xs.min, new Date(years[m], 0, 1).getTime());
+          var s1 = Math.min(xs.max, new Date(years[m] + 1, 0, 1).getTime());
+          var xm = (xs.getPixelForValue(s0) + xs.getPixelForValue(s1)) / 2;
+          ctx.fillText(String(years[m]), xm, area.bottom + 24);
+        }
+        ctx.strokeStyle = cfg.lineColor || 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 1;
+        var seen = {};
+        for (var di = 0; di < chart.data.datasets.length; di++) {
+          var pts = chart.data.datasets[di].data;
+          for (var j = 0; j < pts.length; j++) {
+            var t = pts[j].x instanceof Date ? pts[j].x.getTime() : pts[j].x;
+            if (seen[t]) continue;
+            seen[t] = true;
+            var xp = xs.getPixelForValue(t);
+            if (xp < area.left || xp > area.right) continue;
+            ctx.beginPath();
+            ctx.moveTo(xp, area.bottom);
+            ctx.lineTo(xp, area.bottom + 4);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+    };
+
     function buildChart() {
       var datasets = [];
       for (var i = 0; i < state.roster.length; i++) {
@@ -202,7 +311,9 @@
           data: data,
           borderColor: state.colors[i],
           backgroundColor: state.colors[i],
-          borderWidth: 1.5,
+          borderWidth: function (ctx) {
+            return state.active && ctx.datasetIndex === state.active.di ? 4 : 1.5;
+          },
           pointRadius: function (ctx) {
             return state.active &&
                    ctx.datasetIndex === state.active.di &&
@@ -220,19 +331,15 @@
       state.chart = new Chart(ctx, {
         type: 'line',
         data: { datasets: datasets },
+        plugins: [customXAxisPlugin],
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          interaction: {
-            mode: 'nearest',
-            intersect: false
-          },
-          onClick: onCanvasClick,
+          events: [],
           plugins: {
+            customXAxis: { lineColor: 'rgba(0,0,0,0.35)', yearColor: 'rgba(0,0,0,0.55)' },
             legend: { display: false },
             tooltip: {
-              mode: 'nearest',
-              intersect: false,
               callbacks: {
                 title: function (items) {
                   if (!items.length) return '';
@@ -250,16 +357,52 @@
           scales: {
             x: {
               type: 'time',
-              time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
-              title: { display: true, text: 'Date' }
+              time: { unit: 'month' },
+              grid: { color: 'rgba(0,0,0,0.08)' },
+              border: { display: false },
+              ticks: { display: false, autoSkip: false },
+              title: { display: true, text: ' ', padding: 10 }
             },
             y: {
               type: 'linear',
-              title: { display: true, text: 'Rating' }
+              ticks: { font: { weight: 'bold' } },
+              afterBuildTicks: function (axis) {
+                var vmin = Infinity, vmax = -Infinity;
+                axis.chart.data.datasets.forEach(function (ds) {
+                  if (ds.hidden) return;
+                  ds.data.forEach(function (p) {
+                    if (p.y < vmin) vmin = p.y;
+                    if (p.y > vmax) vmax = p.y;
+                  });
+                });
+                if (vmin === Infinity) return;
+                var span = vmax - vmin;
+                var step;
+                if (span <= 0) step = 1;
+                else {
+                  var raw = span / 5;
+                  var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+                  var norm = raw / mag;
+                  step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+                }
+                axis.min = Math.floor(vmin / step) * step;
+                axis.max = Math.ceil(vmax / step) * step;
+                axis.ticks = [];
+                for (var v = axis.min; v <= axis.max + 1e-9; v += step) {
+                  axis.ticks.push({ value: v });
+                }
+              },
+              title: {
+                display: true,
+                text: 'Rating',
+                font: { size: 14, weight: 'bold' },
+                color: '#24292f'
+              }
             }
           }
         }
       });
+      document.getElementById('chart').addEventListener('click', onCanvasClick);
     }
 
     function distToSegmentSq(px, py, ax, ay, bx, by) {
@@ -274,8 +417,9 @@
     }
 
     function onCanvasClick(evt) {
-      var clickX = evt.x;
-      var clickY = evt.y;
+      var rect = state.chart.canvas.getBoundingClientRect();
+      var clickX = evt.clientX - rect.left;
+      var clickY = evt.clientY - rect.top;
 
       var bestDi = -1;
       var bestIdx = -1;
@@ -301,7 +445,7 @@
           var dNode = (clickX - px) * (clickX - px) + (clickY - py) * (clickY - py);
           if (dNode < nodeDist) {
             nodeDist = dNode;
-            nodeIdx = el.index;
+            nodeIdx = j;
           }
 
           if (j > 0) {
@@ -321,17 +465,17 @@
         }
       }
 
-      if (bestDi === -1) return;
-
-      state.active = { di: bestDi, idx: bestIdx };
-      state.chart.tooltip.setActiveElements([{ datasetIndex: bestDi, index: bestIdx }], evt);
-      state.chart.render();
-      setTimeout(function () {
+      if (bestDi === -1 || bestLineDist > CLICK_TOL * CLICK_TOL) {
         if (state.active) {
           state.active = null;
-          state.chart.render();
+          state.chart.update();
         }
-      }, 2000);
+        return;
+      }
+
+      state.active = { di: bestDi, idx: bestIdx };
+      state.chart.tooltip.setActiveElements([{ datasetIndex: bestDi, index: bestIdx }], { x: clickX, y: clickY });
+      state.chart.update();
     }
 
     function visibleCount() {
@@ -370,6 +514,7 @@
     }
 
     function togglePlayer(name) {
+      state.active = null;
       state.hidden[name] = !state.hidden[name];
       saveHidden();
       for (var i = 0; i < state.chart.data.datasets.length; i++) {
@@ -382,6 +527,7 @@
     }
 
     function setAll(shown) {
+      state.active = null;
       state.hidden = {};
       if (!shown) {
         for (var i = 0; i < state.roster.length; i++) state.hidden[state.roster[i]] = true;
@@ -404,6 +550,7 @@
 
     function hideInactive() {
       // Hide every player the server has faded (font not black); show the rest.
+      state.active = null;
       state.hidden = {};
       for (var i = 0; i < state.roster.length; i++) {
         if (isInactive(state.roster[i])) state.hidden[state.roster[i]] = true;
