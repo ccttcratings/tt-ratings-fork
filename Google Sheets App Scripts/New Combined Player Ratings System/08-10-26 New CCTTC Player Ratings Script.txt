@@ -1547,7 +1547,6 @@ function alignToUSATT() {
     var msg = 'Alignment skipped: only ' + algo.validCount +
       ' player(s) with a valid (non-stale) official rating. Need at least 1.';
     Logger.log(msg);
-    appendLog(ss, new Date(), null, 'SKIPPED', msg);
     ss.toast(msg, 'USATT Alignment', 5);
     return;
   }
