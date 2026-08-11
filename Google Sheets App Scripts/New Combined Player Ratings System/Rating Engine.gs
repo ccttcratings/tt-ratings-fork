@@ -4,7 +4,7 @@
  * Replicates tt-ratings.py's flow using the spreadsheet itself as the
  * player database instead of MongoDB:
  *
- *   updateRatingsFromSheet() - reads the active date sheet's scores,
+ *   runRatingsEngine() - reads the active date sheet's scores,
  *     reads current ratings from the Ratings sheet, computes ELO changes
  *     via updateRating() (see CCTTC ELO.gs), and writes the results back
  *     to the Ratings sheet and the date sheet's league columns.
@@ -13,7 +13,7 @@
  *   A = rank, B = player name, C = club rating, D = last-updated date,
  *   E = Equalize button (instructions below), F = USATT rating,
  *   G = USATT date earned, H = Show Inactive button, I-J blank,
- *   K = Hide Inactive button, CB = primary emails, CE = secondary emails.
+ *   K = Hide Inactive button, CH = primary emails, CK = secondary emails.
  *
  * Dated rating history lives on a hidden "Rating History" tab in long/tidy
  * format: header row 1 (A=Player, B=Date, C=Rating) and one data row per
@@ -83,7 +83,7 @@ function isSuspectedTypo(row) {
   return globalThis.isSuspectedTypo(row);
 }
 
-function updateRatingsFromSheet() {
+function runRatingsEngine() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var sheetName = sheet.getName();
@@ -101,10 +101,28 @@ function updateRatingsFromSheet() {
     return;
   }
 
+  // New-player check runs BEFORE the typo gate. Any name on the date sheet that
+  // is not already in the Ratings sheet triggers a confirmation dialog (new
+  // player vs typo). A confirmed new player is prompted for an initial rating
+  // and email, inserted at the bottom of the Ratings tab, then the run resumes
+  // with the typo gate and the ELO computation.
+  var newPlayers = findNewPlayers(sheet);
+  if (newPlayers.length > 0) {
+    // Remember the date sheet so the chained dialogs (and the resumed run)
+    // can find it even if the operator switches tabs while confirming.
+    CacheService.getScriptCache().put('engineSheet', sheetName, 600);
+    showNewPlayerDialog(newPlayers[0], 0, newPlayers.length);
+    return;
+  }
+
+  runEngineCore(sheet, sheetName);
+}
+
+function runEngineCore(sheet, sheetName) {
   // Typo gate: check for suspected score typos BEFORE computing ratings. If any
   // are found, flag their J cells red and open a modeless dialog so the operator
   // can fix them in the sheet, then click Re-check; once the data is clean the
-  // same run continues automatically (typoRecheck -> updateRatingsFromSheet).
+  // same run continues automatically (typoRecheck -> runRatingsEngine).
   var typos = scanForTypos(sheet);
   if (typos.length > 0) {
     flagTypoRows(sheet, typos);
@@ -112,6 +130,8 @@ function updateRatingsFromSheet() {
     return;
   }
 
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
   var currentRatings = getCurrentRatings(ratingsSheet);
   var changes = {};       // name -> sum of ELO changes
   var needsRating = {};   // players seen without a rating
@@ -342,7 +362,7 @@ function updateRatingsFromSheet() {
   // (only players who actually played get a value in today's column).
   var histCount = updateRatingsHistory(participants, today);
 
-  Logger.log('Engine updateRatingsFromSheet complete.');
+  Logger.log('Engine runRatingsEngine complete.');
   ss.toast('Ratings updated for ' + sortedNames.length + ' players (history: ' + histCount + ').', 'Done', 3);
 
   if (unrated.length > 0) {
@@ -350,6 +370,191 @@ function updateRatingsFromSheet() {
       'These players had no rating and were skipped (add a rating to the Ratings sheet, then run again):\n' +
       unrated.join(', '));
   }
+}
+
+/**
+ * Names on the date sheet that have no entry in the Ratings sheet. Runs BEFORE
+ * the typo gate so a genuinely new player can be confirmed and added with an
+ * initial club rating instead of silently skipping their matches. Order is
+ * preserved as names first appear in the sheet (league 1 top to league 3).
+ */
+function findNewPlayers(sheet) {
+  var ratingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(RATINGS_SHEET_NAME);
+  var currentRatings = getCurrentRatings(ratingsSheet);
+  var seen = {};
+  var newPlayers = [];
+  for (var l = 0; l < PLAYER_RANGES.length; l++) {
+    var values = sheet.getRange(PLAYER_RANGES[l]).getValues();
+    for (var j = 0; j < values.length; j++) {
+      var name = String(values[j][0]).trim();
+      if (name === '') continue;
+      if (currentRatings[name] === undefined && !seen[name]) {
+        seen[name] = true;
+        newPlayers.push(name);
+      }
+    }
+  }
+  return newPlayers;
+}
+
+/**
+ * One-at-a-time confirmation dialog: "New Player" vs "Typo". Choosing "Typo"
+ * cancels the whole run so the operator can fix the spelling and rerun.
+ */
+function showNewPlayerDialog(name, index, total) {
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(buildNewPlayerDialogHtml(name, index, total))
+      .setWidth(400).setHeight(240),
+    'New player detected');
+}
+
+function buildNewPlayerDialogHtml(name, index, total) {
+  var safeName = escapeHtml(name);
+  return '<!DOCTYPE html><html><head><base target="_top"></head><body>' +
+    '<h3>New player detected</h3>' +
+    '<p><b>' + safeName + '</b> is not in the Ratings sheet' +
+    (total > 1 ? ' (' + (index + 1) + ' of ' + total + ').' : '.') + '</p>' +
+    '<p>Is this a new player, or is the name spelled wrong?</p>' +
+    '<p>' +
+    '<button onclick="newPlayer()">New Player</button> ' +
+    '<button onclick="typo()">Typo</button>' +
+    '</p>' +
+    '<script>' +
+    'function newPlayer() {' +
+    '  google.script.run.newPlayerRatingDialog(' + JSON.stringify(name) + ');' +
+    '}' +
+    'function typo() {' +
+    '  google.script.run.withSuccessHandler(function () { google.script.host.close(); })' +
+    '    .cancelEngineForTypo(' + JSON.stringify(name) + ');' +
+    '}' +
+    '</script>' +
+    '</body></html>';
+}
+
+function cancelEngineForTypo(name) {
+  SpreadsheetApp.getUi().alert(
+    'The "Run Ratings Engine" has been canceled!',
+    "Correct the 'player name' spelling and try running the Ratings Engine again.",
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/** Ask for the initial club rating, then hand off to the email dialog. */
+function newPlayerRatingDialog(name) {
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(buildNewPlayerRatingDialogHtml(name))
+      .setWidth(380).setHeight(230),
+    'Initial rating for ' + name);
+}
+
+function buildNewPlayerRatingDialogHtml(name) {
+  return '<!DOCTYPE html><html><head><base target="_top"></head><body>' +
+    '<h3>Initial club rating</h3>' +
+    '<p>Enter the starting club rating for <b>' + escapeHtml(name) +
+    '</b> (e.g., 1500):</p>' +
+    '<p><input id="rating" type="number" step="0.25" min="0" placeholder="e.g. 1500" style="width:150px"></p>' +
+    '<p>' +
+    '<button id="okBtn" onclick="submitRating()">OK</button> ' +
+    '<button onclick="cancel()">Cancel</button>' +
+    '</p>' +
+    '<div id="status" style="color:#cc0000"></div>' +
+    '<script>' +
+    'function submitRating() {' +
+    '  var r = document.getElementById("rating").value.trim();' +
+    '  if (r === "" || isNaN(parseFloat(r))) {' +
+    '    document.getElementById("status").textContent = "Enter a numeric rating.";' +
+    '    return;' +
+    '  }' +
+    '  document.getElementById("okBtn").disabled = true;' +
+    '  google.script.run.addNewPlayerRating(' + JSON.stringify(name) + ', parseFloat(r));' +
+    '}' +
+    'function cancel() { google.script.host.close(); }' +
+    '</script>' +
+    '</body></html>';
+}
+
+/**
+ * Insert the confirmed new player on the empty row below the lowest-ranked
+ * player (rank in A, name in B, rating in C, today in D) and ask for the email.
+ */
+function addNewPlayerRating(name, rating) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  var newRow = insertNewPlayerRow(ratingsSheet, name, rating);
+  showNewPlayerEmailDialog(name, newRow);
+}
+
+function insertNewPlayerRow(ratingsSheet, name, rating) {
+  // Lowest-ranked player is the last non-empty row in column B (rank 1 is row 2).
+  var bValues = ratingsSheet.getRange('B2:B').getValues();
+  var lastPlayerRow = 1; // sheet row of the last player; 1 means none yet
+  for (var i = 0; i < bValues.length; i++) {
+    if (String(bValues[i][0]).trim() !== '') lastPlayerRow = i + 2;
+  }
+  var newRow = lastPlayerRow + 1;
+  ratingsSheet.getRange('A' + newRow).setValue(lastPlayerRow); // rank = lowest + 1
+  ratingsSheet.getRange('B' + newRow).setValue(name);
+  ratingsSheet.getRange('C' + newRow).setValue(roundQuarter(rating));
+  ratingsSheet.getRange('D' + newRow).setValue(
+    Utilities.formatDate(new Date(), ratingsSheet.getParent().getSpreadsheetTimeZone(), 'MM-dd-yyyy'));
+  return newRow;
+}
+
+/** Ask for the player's primary email (written to CH); may be left blank. */
+function showNewPlayerEmailDialog(name, row) {
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(buildNewPlayerEmailDialogHtml(name, row))
+      .setWidth(380).setHeight(230),
+    'Email for ' + name);
+}
+
+function buildNewPlayerEmailDialogHtml(name, row) {
+  return '<!DOCTYPE html><html><head><base target="_top"></head><body>' +
+    '<h3>Primary email</h3>' +
+    '<p>Enter the primary email for <b>' + escapeHtml(name) + '</b> (optional):</p>' +
+    '<p><input id="email" type="text" placeholder="name@example.com" style="width:230px"></p>' +
+    '<p>' +
+    '<button id="okBtn" onclick="submitEmail()">OK</button> ' +
+    '<button onclick="cancel()">Cancel</button>' +
+    '</p>' +
+    '<script>' +
+    'function submitEmail() {' +
+    '  var e = document.getElementById("email").value.trim();' +
+    '  document.getElementById("okBtn").disabled = true;' +
+    '  google.script.run.addNewPlayerEmail(' + JSON.stringify(name) + ', ' + row + ', e);' +
+    '}' +
+    'function cancel() { google.script.host.close(); }' +
+    '</script>' +
+    '</body></html>';
+}
+
+/**
+ * Write the email to CH (index 85), then either present the next new player or
+ * resume the run (typo gate + ELO computation). The pending list is re-derived
+ * from the sheet so already-inserted players drop out automatically.
+ */
+function addNewPlayerEmail(name, row, email) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  if (email && String(email).trim() !== '') {
+    ratingsSheet.getRange(row, 86).setValue(String(email).trim());
+  }
+  var sheet = resolveEngineSheet();
+  var remaining = findNewPlayers(sheet);
+  if (remaining.length > 0) {
+    showNewPlayerDialog(remaining[0], 0, remaining.length);
+  } else {
+    runEngineCore(sheet, sheet.getName());
+  }
+}
+
+function resolveEngineSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cached = CacheService.getScriptCache().get('engineSheet');
+  if (cached) {
+    var s = ss.getSheetByName(cached);
+    if (s) return s;
+  }
+  return ss.getActiveSheet();
 }
 
 /**
@@ -370,9 +575,9 @@ function rerankRatings() {
 
 /**
  * Sort the Ratings tab by rating (descending) and rewrite A-D (rank, name,
- * rating, last-changed date) plus the email columns (CB primary, CE
+ * rating, last-changed date) plus the email columns (CH primary, CK
  * secondary) aligned to the new row order. ELO changes are applied by
- * updateRatingsFromSheet() and passed in as `changes`; rerankRatings() passes
+ * runRatingsEngine() and passed in as `changes`; rerankRatings() passes
  * an empty map so no rating value changes, only row order.
  *
  * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
@@ -413,16 +618,16 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
     if (cName !== '') existingDates[cName] = curValues[ci][3];
   }
 
-  // Preserve player emails (CB = primary, CE = secondary) so they follow the
+  // Preserve player emails (CH = primary, CK = secondary) so they follow the
   // players when rankings shuffle. Emails are keyed by name, not by row.
   var emailsByName = {};
-  var emailValues = ratingsSheet.getRange('B2:CE').getValues();
+  var emailValues = ratingsSheet.getRange('B2:CK').getValues();
   for (var ei = 0; ei < emailValues.length; ei++) {
     var eName = String(emailValues[ei][0]).trim();
     if (eName === '') continue;
     emailsByName[eName] = {
-      primary: emailValues[ei][78] !== undefined ? emailValues[ei][78] : '',
-      secondary: emailValues[ei][81] !== undefined ? emailValues[ei][81] : ''
+      primary: emailValues[ei][85] !== undefined ? emailValues[ei][85] : '',
+      secondary: emailValues[ei][88] !== undefined ? emailValues[ei][88] : ''
     };
   }
 
@@ -439,7 +644,7 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
   }
 
   // Re-write emails aligned to the new (sorted) row order so they stay with
-  // the right player. CB = primary, CE = secondary.
+  // the right player. CH = primary, CK = secondary.
   var hVals = [];
   var kVals = [];
   for (var ori = 0; ori < outRows.length; ori++) {
@@ -449,10 +654,10 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
     kVals.push([em.secondary || '']);
   }
   if (hVals.length > 0) {
-    ratingsSheet.getRange('CB2:CB' + (hVals.length + 1)).setValues(hVals);
+    ratingsSheet.getRange('CH2:CH' + (hVals.length + 1)).setValues(hVals);
   }
   if (kVals.length > 0) {
-    ratingsSheet.getRange('CE2:CE' + (kVals.length + 1)).setValues(kVals);
+    ratingsSheet.getRange('CK2:CK' + (kVals.length + 1)).setValues(kVals);
   }
 
   return { outRows: outRows, newRatings: newRatings };

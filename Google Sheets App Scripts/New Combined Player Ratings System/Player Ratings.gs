@@ -417,8 +417,8 @@ function showTypoDialog(action, sheetName, typos) {
 
 function typoRecheck(action, sheetName) {
   // Re-read the sheet after the operator fixes the flagged rows. When no typos
-  // remain, resume the pending action (findWinners / updateRatingsFromSheet) in
-  // the same run; otherwise keep the dialog open with the remaining rows.
+  // remain, resume the pending action (findWinners / runRatingsEngine) in the
+  // same run; otherwise keep the dialog open with the remaining rows.
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return { clean: true };
   var typos = scanForTypos(sheet);
@@ -429,7 +429,7 @@ function typoRecheck(action, sheetName) {
   if (action === "findWinners") {
     findWinners();
   } else if (action === "updateRatings") {
-    updateRatingsFromSheet();
+    runRatingsEngine();
   }
   return { clean: true };
 }
