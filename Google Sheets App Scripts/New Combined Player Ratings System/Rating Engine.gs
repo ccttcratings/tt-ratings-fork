@@ -12,8 +12,8 @@
  * Combined Ratings sheet layout (single tab):
  *   A = rank, B = player name, C = club rating, D = last-updated date,
  *   E = Equalize button (instructions below), F = USATT rating,
- *   G = USATT date earned, H = Show Inactive button, I-J blank,
- *   K = Hide Inactive button, CH = primary emails, CK = secondary emails.
+ *   G = USATT date earned, K = Show Inactive button, L-M blank,
+ *   N = Hide Inactive button, CH = primary emails, CK = secondary emails.
  *
  * Dated rating history lives on a hidden "Rating History" tab in long/tidy
  * format: header row 1 (A=Player, B=Date, C=Rating) and one data row per
