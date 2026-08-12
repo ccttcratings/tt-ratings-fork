@@ -1,5 +1,5 @@
 const RESPONSE_SPREADSHEET_ID = '1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk';
-const MAIN_SPREADSHEET_ID = '1NdnC1kN831FVfcInOmFBfe-PU5tgKjFh3I-uxPdVGJM';
+const MAIN_SPREADSHEET_ID = '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg';
 const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com, bryant@champaigntabletennis.com';
 const HEADER_ROW = 3;
 
@@ -47,7 +47,6 @@ function sendSaturdayEmail() {
       }
     }
 
-    // Combined Ratings layout: CH = primary email (index 85), CK = secondary email (index 88).
     for (let i = 0; i < ratingsData.length; i++) {
       addEmailLookup(ratingsData[i][85], ratingsData[i][2], ratingsData[i][1]);
       addEmailLookup(ratingsData[i][88], ratingsData[i][2], ratingsData[i][1]);
@@ -233,7 +232,7 @@ function onFormSubmit(e) {
   sheet.setRowHeight(submittedRow, 30);
   sheet.getRange('D3').setValue('Email Addresses');
   sheet.getRange('E3').setValue('Names');
-  sheet.getRange('F3').setValue('Are youse playing?');
+  sheet.getRange('F3').setValue('Responses');
   sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
   sheet.getRange('B3:F3').setBorder(null, null, true, null, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THICK).setFontWeight('bold');
   sheet.getRange('C3').setValue('Timestamps').setBorder(null, true, null, true, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
@@ -250,7 +249,7 @@ function onOpen() {
     sheet.getRange('C3').setValue('Timestamps');
     sheet.getRange('D3').setValue('Email Addresses');
     sheet.getRange('E3').setValue('Names');
-    sheet.getRange('F3').setValue('Are youse playing?');
+    sheet.getRange('F3').setValue('Responses');
     sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
   }
 }

@@ -232,7 +232,7 @@ function onFormSubmit(e) {
   sheet.setRowHeight(submittedRow, 30);
   sheet.getRange('D3').setValue('Email Addresses');
   sheet.getRange('E3').setValue('Names');
-  sheet.getRange('F3').setValue('Are youse playing?');
+  sheet.getRange('F3').setValue('Responses');
   sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
   sheet.getRange('B3:F3').setBorder(null, null, true, null, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THICK).setFontWeight('bold');
   sheet.getRange('C3').setValue('Timestamps').setBorder(null, true, null, true, false, false, "#000000", SpreadsheetApp.BorderStyle.SOLID_THIN);
@@ -249,7 +249,7 @@ function onOpen() {
     sheet.getRange('C3').setValue('Timestamps');
     sheet.getRange('D3').setValue('Email Addresses');
     sheet.getRange('E3').setValue('Names');
-    sheet.getRange('F3').setValue('Are youse playing?');
+    sheet.getRange('F3').setValue('Responses');
     sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
   }
 }

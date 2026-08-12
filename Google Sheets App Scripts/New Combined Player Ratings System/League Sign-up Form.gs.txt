@@ -15,7 +15,7 @@ function newLeagueDate() {
       formItems[i].setTitle('Names');
     }
   }
-  form.getItemById(598333706).setTitle('Are youse playing?');
+  form.getItemById(598333706).setTitle('Responses');
 
   if (!form.isAcceptingResponses()) {
     form.setTitle(form.getTitle().replace("OPEN", "CLOSED"));
@@ -108,7 +108,7 @@ function newLeagueDate() {
     sheet.getRange('C4').setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN);
     sheet.getRange('D3').setValue('Email Addresses').setFontWeight('bold').setBorder(null, null, null, true, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
     sheet.getRange('E3').setValue('Names');
-    sheet.getRange('F3').setValue('Are youse playing?').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange('F3').setValue('Responses').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
     sheet.getRange('3:4').setFontSize(15).setFontWeight('bold');
     sheet.getRange('D4:E4').setValue('Total Player Limit = 15').setBorder(null, true, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN).setHorizontalAlignment('center');
     sheet.getRange('A1:G1').setBackground('#c6c0ab');
@@ -139,7 +139,7 @@ function newLeagueDate() {
             s.getRange('C3').setValue('Timestamps');
             s.getRange('D3').setValue('Email Addresses');
             s.getRange('E3').setValue('Names');
-            s.getRange('F3').setValue('Are youse playing?');
+            s.getRange('F3').setValue('Responses');
             s.getRange('3:3').setFontSize(15).setFontWeight('bold');
             break;
         }
@@ -151,7 +151,7 @@ function newLeagueDate() {
     sheet.getRange('C3').setValue('Timestamps');
     sheet.getRange('D3').setValue('Email Addresses');
     sheet.getRange('E3').setValue('Names');
-    sheet.getRange('F3').setValue('Are youse playing?');
+    sheet.getRange('F3').setValue('Responses');
     sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
     SpreadsheetApp.flush();
 }
