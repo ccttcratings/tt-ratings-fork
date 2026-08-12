@@ -2,9 +2,9 @@ function newLeagueDate() {
   var form = FormApp.openById("14a73b_Qcgus5fV3DmNzSGUFxFcZ8ibqYbux1qxs_bVE");
   form.setTitle(form.getTitle().replace("Signup(", "Signup\n(").replace(")**", ")\n**"));
 
-  var confirmation_msg = "Your response has been recorded. \n\nRegistered players: https://bit.ly/ccttc-sheet \n\nTo signup or edit your response: https://bit.ly/ccttc-signup \n\n";
+  var confirmation_msg = "Your response has been recorded. \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nTo signup or edit your response: https://tinyurl.com/ccttc-sign-up \n\n";
   form.setConfirmationMessage(confirmation_msg);
-  var form_description = "Short url to this page: https://bit.ly/ccttc-signup \n\nRegistered players: https://bit.ly/ccttc-sheet \n\nLocation: 1515 N Market St, Champaign, IL 61820 (https://goo.gl/maps/95AXycTNSkh94zZB8)" + "\n\nTime: 9:00 a.m. - noon.";
+  var form_description = "Short url to this page: https://tinyurl.com/ccttc-sign-up \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nLocation: 1515 N Market St, Champaign, IL 61820 (https://goo.gl/maps/95AXycTNSkh94zZB8)" + "\n\nTime: 9:00 a.m. - noon.";
 
   var formItems = form.getItems();
   for (var i = 0; i < formItems.length; i++) {
@@ -42,9 +42,9 @@ function newLeagueDate() {
   var new_date_str = `${new Intl.DateTimeFormat('en-US', options).format(next_sat)} ${next_sat.getDate()}, ${next_sat.getFullYear()}`;
   var new_title = `League Play Sign-up\n(${new_date_str})\n** Registration OPEN **`;
 
-  form_description = "Short url to this page: https://bit.ly/ccttc-signup \n\nRegistered players: https://bit.ly/ccttc-sheet \n\nLocation: 1515 N Market St, Champaign, IL 61820 (https://goo.gl/maps/95AXycTNSkh94zZB8)" + "\n\nTime: 9:00 a.m. - noon.";
+  form_description = "Short url to this page: https://tinyurl.com/ccttc-sign-up \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nLocation: 1515 N Market St, Champaign, IL 61820 (https://goo.gl/maps/95AXycTNSkh94zZB8)" + "\n\nTime: 9:00 a.m. - noon.";
 
-  confirmation_msg = "Your response has been recorded. \n\nRegistered players: https://bit.ly/ccttc-sheet \n\nTo signup or edit your response: https://bit.ly/ccttc-signup \n\n";
+  confirmation_msg = "Your response has been recorded. \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nTo signup or edit your response: https://tinyurl.com/ccttc-sign-up \n\n";
 
   form.setAcceptingResponses(true);
   form.setConfirmationMessage(confirmation_msg);
@@ -127,7 +127,7 @@ function newLeagueDate() {
     sheet.getRange('C3:C5').setHorizontalAlignment('center');
     sheet.getRange('F3:F5').setHorizontalAlignment('center');
     sheet.getRange('B2').setFormula('=IMAGE("https://drive.google.com/uc?export=download&id=12SCNh6cC0Alypz2eeuXoQjd9Mb8WjZVZ")');
-    sheet.getRange('C4').setRichTextValue(SpreadsheetApp.newRichTextValue().setText('League Results').setLinkUrl('https://docs.google.com/spreadsheets/d/1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg/edit?gid=1967667427#gid=1967667427').build()).setFontColor('#000000').setFontLine('none');
+    sheet.getRange('C4').setRichTextValue(SpreadsheetApp.newRichTextValue().setText('League Results').setLinkUrl('https://docs.google.com/spreadsheets/d/1NdnC1kN831FVfcInOmFBfe-PU5tgKjFh3I-uxPdVGJM/preview').build()).setFontColor('#000000').setFontLine('none');
     SpreadsheetApp.flush();
 
     // Fix headers on the previous response sheet (form push reverts C3/D3)
@@ -144,6 +144,15 @@ function newLeagueDate() {
             break;
         }
     }
+    SpreadsheetApp.flush();
+
+    // Re-apply the current tab's headers after the form's async push settles
+    // (the form push can revert C3/D3 to singular "Timestamp"/"Email Address").
+    sheet.getRange('C3').setValue('Timestamps');
+    sheet.getRange('D3').setValue('Email Addresses');
+    sheet.getRange('E3').setValue('Names');
+    sheet.getRange('F3').setValue('Are youse playing?');
+    sheet.getRange('3:3').setFontSize(15).setFontWeight('bold');
     SpreadsheetApp.flush();
 }
 
