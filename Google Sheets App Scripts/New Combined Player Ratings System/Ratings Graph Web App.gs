@@ -40,6 +40,17 @@ var RATINGS_GRAPH_DEFAULT = 'combined';
 var RATINGS_GRAPH_ROSTER_SHEET = 'Ratings';
 var RATINGS_GRAPH_HISTORY_SHEET = 'Rating History';
 
+// Switching levers for how often getGraphData re-reads the spreadsheet (data
+// changes roughly once a week, so a fresh build is needed ~weekly, not on
+// every page load). CacheService keeps a 6-hour copy for fast hits; the
+// payload is additionally persisted (chunked) in Script Properties so it
+// survives past 6 hours and only rebuilds after GRAPH_WEEK_MS elapses.
+var GRAPH_CACHE_PREFIX = 'graphData.';     // CacheService key prefix, per spreadsheet
+var GRAPH_PROP_PREFIX = 'graphPayload.';   // PropertiesService chunk prefix, per spreadsheet
+var GRAPH_STAMP_PREFIX = 'graphStamp.';    // last-build millis property, per spreadsheet
+var GRAPH_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+var GRAPH_PROP_CHUNK = 8000;               // safely under the 9KB per-value property limit
+
 function resolveSpreadsheetId(ss) {
   ss = String(ss || '').trim().toLowerCase();
   return RATINGS_GRAPH_SPREADSHEETS[ss] || RATINGS_GRAPH_SPREADSHEETS[RATINGS_GRAPH_DEFAULT];
@@ -71,7 +82,90 @@ function doGet() {
  * (defaults to 'combined')
  */
 function getGraphData(ss) {
+  // Re-reads the spreadsheet at most once per GRAPH_WEEK_MS (the underlying
+  // data changes roughly once a week), instead of on every page load - which
+  // is what used to time out at the 6-minute limit once getLastRow() extended
+  // far past the real data. Three tiers, fastest first:
+  //   1) CacheService hit: ~every page load within a 6-hour window (Google's
+  //      hard maximum TTL).
+  //   2) Payload persisted in Script Properties (chunked to dodge the 9KB
+  //      per-value cap): serves pages even after the 6-hour cache expires,
+  //      still without touching the spreadsheet.
+  //   3) Fresh build: only when the weekly stamp is older than GRAPH_WEEK_MS.
+  //
+  // CRITICAL: the weekly stamp + chunked persistence are written even when the
+  // payload exceeds CacheService's 100KB value limit. If they were skipped,
+  // every page load would rebuild the payload from scratch and every load
+  // would pay the full (slow) build cost - the pre-fix symptom. Only the fast
+  // 6-hour cache tier is skipped for over-100KB payloads.
   var id = resolveSpreadsheetId(ss);
+  var props = PropertiesService.getScriptProperties();
+  var stamp = Number(props.getProperty(GRAPH_STAMP_PREFIX + id) || 0);
+  var now = Date.now();
+  if (stamp > 0 && now - stamp < GRAPH_WEEK_MS) {
+    var cache = CacheService.getScriptCache();
+    try {
+      var hit = cache.get(GRAPH_CACHE_PREFIX + id);
+      if (hit) return JSON.parse(hit);
+    } catch (e) { /* corrupt cache entry: fall through */ }
+    var persisted = readGraphPayloadChunks(props, id);
+    if (persisted) {
+      try { return JSON.parse(persisted); } catch (e) { /* corrupt: rebuild */ }
+    }
+  }
+  var data = buildGraphData(id);
+  var json = JSON.stringify(data);
+  try {
+    if (json.length < 100000) {
+      CacheService.getScriptCache().put(GRAPH_CACHE_PREFIX + id, json, 21600); // 6h max TTL
+    }
+    if (writeGraphPayloadChunks(props, id, json)) {
+      props.setProperty(GRAPH_STAMP_PREFIX + id, String(now));
+    }
+  } catch (e) { /* persist failed (quota): next load rebuilds */ }
+  return data;
+}
+
+/**
+ * Reassembles the chunked payload from Script Properties. Returns the raw JSON
+ * string, or null when no chunks exist. Keys: graphPayload.<id>.0, .1, ...
+ */
+function readGraphPayloadChunks(props, id) {
+  var parts = [];
+  for (var n = 0; n < 50; n++) {
+    var part = props.getProperty(GRAPH_PROP_PREFIX + id + '.' + n);
+    if (part == null) break;
+    parts.push(part);
+  }
+  return parts.length ? parts.join('') : null;
+}
+
+/**
+ * Persists the payload across the 6-hour cache window. Google caps one
+ * property value at ~9KB, so the JSON is split into GRAPH_PROP_CHUNK slices
+ * (hard cap of 50 chunks = 400KB, well under the 500KB script-property total).
+ * Returns true when the whole payload was stored (caller refreshes the weekly
+ * stamp); false when it exceeded the chunked capacity - in that case partial
+ * writes are rolled back so next load rebuilds instead of serving garbage.
+ */
+function writeGraphPayloadChunks(props, id, json) {
+  var cap = 50;
+  var i = 0;
+  for (i = 0; i * GRAPH_PROP_CHUNK < json.length && i < cap; i++) {
+    props.setProperty(GRAPH_PROP_PREFIX + id + '.' + i, json.substr(i * GRAPH_PROP_CHUNK, GRAPH_PROP_CHUNK));
+  }
+  if (i * GRAPH_PROP_CHUNK < json.length) {
+    for (var d = 0; d < i; d++) props.deleteProperty(GRAPH_PROP_PREFIX + id + '.' + d);
+    return false;
+  }
+  while (props.getProperty(GRAPH_PROP_PREFIX + id + '.' + i) != null) {
+    props.deleteProperty(GRAPH_PROP_PREFIX + id + '.' + i);
+    i++;
+  }
+  return true;
+}
+
+function buildGraphData(id) {
   var sso = SpreadsheetApp.openById(id);
 
   var roster = [];
@@ -83,12 +177,20 @@ function getGraphData(ss) {
     if (last > 1) {
       var today = new Date();
       var vals = ratings.getRange(2, 1, last - 1, 4).getValues();
+      // Editor-hidden rows (Hide Inactive Players) come from ONE batched
+      // Sheets API request. When the advanced service is not enabled the
+      // lookup is empty and all ranked players are shown (faded by
+      // graphFadePeach); it never falls back to the slow per-player
+      // isRowHiddenByUser() round-trip that used to dominate build time.
+      var hidden = graphHiddenRows(id, RATINGS_GRAPH_ROSTER_SHEET, last);
       for (var i = 0; i < vals.length; i++) {
-        // Skip rows hidden by the editor (Hide Inactive Players) so viewers
-        // can never see inactive players on the graph.
-        if (ratings.isRowHiddenByUser(i + 2)) continue;
+        // The ranked roster's names are contiguous from row 2, so the first
+        // empty name ends the list. Breaking here keeps per-row checks to real
+        // players only - getLastRow() can extend far past the data (formatted
+        // blank rows).
         var nm = String(vals[i][1]).trim();
-        if (nm === '') continue;
+        if (nm === '') break;
+        if (hidden[i + 2]) continue;
         roster.push(nm);
         var d = vals[i][3];
         var ms = (d instanceof Date && !isNaN(d.getTime())) ? d.getTime() : null;
@@ -112,7 +214,11 @@ function getGraphData(ss) {
   if (hist) {
     var hLast = hist.getLastRow();
     if (hLast > 1) {
-      var hv = hist.getRange(2, 1, hLast - 1, 3).getValues();
+      // Safety cap: only the most recent few thousand history rows are read. A
+      // chart cannot sensibly render more, and trailing blank rows (e.g.
+      // pre-formatted to row 1000) add nothing but time.
+      var startRow = Math.max(2, hLast - 4999);
+      var hv = hist.getRange(startRow, 1, hLast - startRow + 1, 3).getValues();
       for (var j = 0; j < hv.length; j++) {
         var p = String(hv[j][0]).trim();
         var d = hv[j][1];
@@ -129,6 +235,31 @@ function getGraphData(ss) {
   }
 
   return { roster: roster, colors: colors, lastDate: lastDate, fade: fade, series: series };
+}
+
+/**
+ * Returns { absoluteRowIndex: true } for user-hidden rows on the roster sheet,
+ * read with a single Sheets API request (rowMetadata). Returns {} when the
+ * Sheets advanced service is not enabled: the graph then shows all ranked
+ * players (faded by graphFadePeach) rather than paying one isRowHiddenByUser()
+ * network round-trip per player. Enabling "Google Sheets API" under Project
+ * settings both restores the exact inactive-player filtering and keeps the
+ * build fast.
+ */
+function graphHiddenRows(id, sheetName, lastRow) {
+  var out = {};
+  try {
+    var end = Math.min(lastRow, 1000);
+    var resp = Sheets.Spreadsheets.get(id, {
+      ranges: [sheetName + '!1:' + end],
+      fields: 'sheets.data.rowMetadata.hiddenByUser'
+    });
+    var meta = resp.sheets[0].data[0].rowMetadata;
+    for (var i = 0; i < meta.length; i++) {
+      if (meta[i].hiddenByUser) out[i + 1] = true; // metadata index 0 == row 1
+    }
+  } catch (e) { /* advanced service disabled: no hidden info, show all */ }
+  return out;
 }
 
 /**

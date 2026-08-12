@@ -565,6 +565,7 @@
     }
 
     function init(data) {
+      clearTimeout(watchdog);
       document.getElementById('loading').style.display = 'none';
       if (!data || !data.roster || !data.roster.length) {
         showError('No roster data found.');
@@ -586,6 +587,7 @@
     }
 
     function showError(msg) {
+      clearTimeout(watchdog);
       document.getElementById('loading').style.display = 'none';
       var el = document.getElementById('error');
       el.textContent = msg;
@@ -596,6 +598,13 @@
       var m = window.location.search.match(/[?&]ss=([^&]+)/);
       return m ? m[1] : 'combined';
     }
+
+    // If the server call has not answered (or failed) within 40 seconds,
+    // replace the spinner with an actionable message instead of hanging on
+    // "Loading data..." forever. init()/showError() cancel it on success.
+    var watchdog = setTimeout(function () {
+      showError('Loading took too long. Please refresh the page; if this keeps happening, tell the league that the graph server timed out.');
+    }, 40000);
 
     google.script.run
       .withSuccessHandler(init)
