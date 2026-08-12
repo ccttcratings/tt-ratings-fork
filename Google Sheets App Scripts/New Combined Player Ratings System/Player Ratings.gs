@@ -138,33 +138,6 @@ function showInactivePlayers() {
   }
 }
 
-/**
- * Mobile-friendly trigger for the Show/Hide Inactive buttons. Floating button
- * images don't work in the phone app, so tapping the button cells on the
- * Ratings tab fires this simple trigger instead. It only dispatches to the
- * existing hideInactivePlayers() / showInactivePlayers() - nothing is replaced.
- *
- * Trigger cells (row 1): K1 = Show Inactive Players, N1 = Hide Inactive
- * Players. Once the button images are placed in these cells via =IMAGE(url),
- * the cells stay selectable and this keeps firing on both mobile and desktop.
- *
- * Simple triggers can only use spreadsheet APIs, so this (and the functions it
- * calls) must stay free of getUi(), CacheService, MailApp, and the advanced
- * services.
- */
-function onSelectionChange(e) {
-  if (!e || !e.range) return;
-  var sheet = e.range.getSheet();
-  if (!sheet || sheet.getName() !== "Ratings") return;
-  if (e.range.getRow() !== 1) return;
-  var col = e.range.getColumn();
-  if (col === 11) {          // K = Show Inactive Players
-    showInactivePlayers();
-  } else if (col === 14) {   // N = Hide Inactive Players
-    hideInactivePlayers();
-  }
-}
-
 function parseDateValue(v) {
   if (v instanceof Date) return v;
   var s = String(v).trim();
