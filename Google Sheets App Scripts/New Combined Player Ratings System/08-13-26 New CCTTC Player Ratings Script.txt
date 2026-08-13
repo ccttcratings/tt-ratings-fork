@@ -2000,9 +2000,9 @@ function computeAlignment(ss) {
     ratings.getRange('G' + rows[i].row).setFontColor(rows[i].stale ? '#cc0000' : '#000000');
   }
 
-  // Refresh the USATT date-column validation note.
-  ratings.getRange('G2').setNote('Enter the date this USATT rating was ACHIEVED (not the date it was submitted). '
-    + 'Ratings older than ' + stalenessYears + ' years turn red and are excluded from the annual USATT alignment.');
+  // Refresh the USATT date-column validation note across every G data cell so
+  // the guidance pops up whenever any G cell is clicked.
+  refreshGColumnNotes(ratings, stalenessYears);
 
   // All ratings live on the USATT quarter-point scale (x.00/.25/.50/.75), so
   // rounding each shifted rating is unnecessary as long as the offset itself is
@@ -2337,6 +2337,36 @@ function round2(v) {
 function roundQuarter(v) {
   // Round to the nearest 0.25 so ratings stay on the USATT quarter-point scale.
   return Math.round(v * 4) / 4;
+}
+
+/**
+ * Stamp the USATT-date guidance onto every G cell on the Ratings tab so the
+ * note pops up whenever any G cell is clicked. Applies only to the data rows
+ * (column A non-empty); the header and trailing blank rows are untouched.
+ */
+function refreshGColumnNotes(ratings, stalenessYears) {
+  var aValues = ratings.getRange('A2:A').getValues();
+  var lastDataRow = 1;
+  for (var i = 0; i < aValues.length; i++) {
+    if (String(aValues[i][0]).trim() !== '') lastDataRow = i + 2;
+  }
+  if (lastDataRow < 2) return;
+  var note = 'Date USATT rating was Achieved (NOT Submitted).  '
+    + 'Ratings older than ' + stalenessYears + ' years turn red and are excluded from the USATT alignments.  '
+    + 'Click the Equalize Ratings Button after updating the USATT ratings.';
+  ratings.getRange('G2:G' + lastDataRow).setNote(note);
+}
+
+/**
+ * Re-stamp the G-column USATT-date notes every time the spreadsheet is opened
+ * so new player rows get the guidance without waiting for an alignment run.
+ */
+function onOpen() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ratings = ss.getSheetByName(ALIGN_RATINGS_SHEET);
+  if (!ratings) return;
+  var stalenessYears = getSetupValue(ss, 'USATT staleness (years)', ALIGN_DEFAULT_STALENESS_YEARS);
+  refreshGColumnNotes(ratings, stalenessYears);
 }
 
 // ==================== FILE: Ratings Graph Web App.gs ====================
