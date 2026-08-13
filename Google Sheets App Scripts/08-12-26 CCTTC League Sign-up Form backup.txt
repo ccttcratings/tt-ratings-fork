@@ -4,7 +4,6 @@ function newLeagueDate() {
 
   var confirmation_msg = "Your response has been recorded. \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nTo signup or edit your response: https://tinyurl.com/ccttc-sign-up \n\n";
   form.setConfirmationMessage(confirmation_msg);
-  var form_description = "Short url to this page: https://tinyurl.com/ccttc-sign-up \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nLocation: 1515 N Market St, Champaign, IL 61820 (https://goo.gl/maps/95AXycTNSkh94zZB8)" + "\n\nTime: 9:00 a.m. - noon.";
 
   var formItems = form.getItems();
   for (var i = 0; i < formItems.length; i++) {
@@ -16,16 +15,6 @@ function newLeagueDate() {
     }
   }
   form.getItemById(598333706).setTitle('Responses');
-
-  if (!form.isAcceptingResponses()) {
-    form.setTitle(form.getTitle().replace("OPEN", "CLOSED"));
-    form.setDescription('Signup is closed, please check back later.\n\n' + form_description);
-    form.getItemById(598333706).asMultipleChoiceItem().setChoiceValues(["No"]);
-  } else {
-    form.setTitle(form.getTitle().replace("CLOSED", "OPEN"));
-    form.setDescription(form_description);
-    form.getItemById(598333706).asMultipleChoiceItem().setChoiceValues(["Yes", "No"]);
-  }
 
   var now = new Date();
   var ss_id = form.getDestinationId();
@@ -42,14 +31,11 @@ function newLeagueDate() {
   var new_date_str = `${new Intl.DateTimeFormat('en-US', options).format(next_sat)} ${next_sat.getDate()}, ${next_sat.getFullYear()}`;
   var new_title = `League Play Sign-up\n(${new_date_str})\n** Registration OPEN **`;
 
-  form_description = "Short url to this page: https://tinyurl.com/ccttc-sign-up \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nLocation: 1515 N Market St, Champaign, IL 61820 (https://goo.gl/maps/95AXycTNSkh94zZB8)" + "\n\nTime: 9:00 a.m. - noon.";
-
   confirmation_msg = "Your response has been recorded. \n\nRegistered players: https://tinyurl.com/Registered-CCTTC-Players \n\nTo signup or edit your response: https://tinyurl.com/ccttc-sign-up \n\n";
 
   form.setAcceptingResponses(true);
   form.setConfirmationMessage(confirmation_msg);
   form.setTitle(new_title);
-  form.setDescription(form_description);
   form.deleteAllResponses();
   form.getItemById(598333706).asMultipleChoiceItem().setChoiceValues(["Yes", "No"]);
 
