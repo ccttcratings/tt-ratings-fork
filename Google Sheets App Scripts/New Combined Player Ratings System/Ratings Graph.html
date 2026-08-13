@@ -168,9 +168,11 @@
           var arr = JSON.parse(raw);
           if (Array.isArray(arr)) {
             arr.forEach(function (n) { state.hidden[n] = true; });
+            return true; // a stored choice exists (even Show All) - honor it
           }
         }
       } catch (e) { /* ignore corrupt storage */ }
+      return false;
     }
 
     function saveHidden() {
@@ -576,7 +578,21 @@
       state.lastDate = data.lastDate || {};
       state.fade = data.fade || {};
       state.series = data.series || {};
-      loadSavedHidden();
+      // Default to the same view the Hide Inactive button produces: load with
+      // only the active players' lines showing. If the visitor already has a
+      // stored choice (e.g. Show All), that choice is honored instead. Done
+      // before buildChart() so buildChart's dataset `hidden` flags pick it up.
+      if (!loadSavedHidden()) {
+        var hiddenInit = [];
+        for (var hn = 0; hn < state.roster.length; hn++) {
+          if (isInactive(state.roster[hn])) hiddenInit.push(state.roster[hn]);
+        }
+        if (hiddenInit.length) {
+          state.active = null;
+          for (var hk = 0; hk < hiddenInit.length; hk++) state.hidden[hiddenInit[hk]] = true;
+          saveHidden();
+        }
+      }
       buildChart();
       cropAxis();
       state.chart.update();

@@ -34,6 +34,10 @@ var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
 var LEAGUE_RATING_RANGES = ['D3:F8', 'D20:F25', 'D37:F42'];
 var LEAGUE_START_ROWS = [3, 20, 37];
 var POINT_WINNER_RANGES = ['D12', 'D29', 'D46'];
+// Script Property key prefix (full key is this + spreadsheet id) holding the
+// pre-run snapshot that revertRatingsEngineRun() restores. A newer run
+// replaces the older snapshot, so revert always undoes the most recent run.
+var ENGINE_RUN_SNAPSHOT_KEY = 'engineLastRun.';
 
 function getCurrentRatings(sheet) {
   var values = sheet.getRange('A2:D').getValues();
@@ -100,6 +104,12 @@ function runRatingsEngine() {
     SpreadsheetApp.getUi().alert("Ratings sheet not found.");
     return;
   }
+
+  // Record the exact pre-run state so revertRatingsEngineRun() can undo this
+  // run completely (ratings/rankings/emails, the date sheet's D/E/F and J
+  // cells, and today's Rating History rows) even if new players get added
+  // while the run's dialogs are open.
+  snapshotEngineRunState(ss, sheet, sheetName);
 
   // New-player check runs BEFORE the typo gate. Any name on the date sheet that
   // is not already in the Ratings sheet triggers a confirmation dialog (new
@@ -363,7 +373,7 @@ function runEngineCore(sheet, sheetName) {
   var histCount = updateRatingsHistory(participants, today);
 
   Logger.log('Engine runRatingsEngine complete.');
-  ss.toast('Ratings updated for ' + sortedNames.length + ' players (history: ' + histCount + ').', 'Done', 3);
+  ss.toast('Ratings updated for ' + result.outRows.length + ' players (history: ' + histCount + ').', 'Done', 3);
 
   if (unrated.length > 0) {
     SpreadsheetApp.getUi().alert(
@@ -761,6 +771,185 @@ function createRatingsHistoryTab(ss) {
   newTab.hideSheet();
   newTab.getRange(RATINGS_HISTORY_HEADER_ROW, 1, 1, 3).setValues([['Player', 'Date', 'Rating']]);
   return newTab;
+}
+
+/**
+ * Snapshot the exact pre-run state so revertRatingsEngineRun() can undo a run:
+ * the Ratings tab's A-D grid and CH/CK emails, the date sheet's D/E/F and
+ * point-winner cells, the score rows' J column plus I/J/K cell colors, and the
+ * run date (used to delete today's Rating History rows). Stored per
+ * spreadsheet; a newer run replaces the older snapshot.
+ */
+function snapshotEngineRunState(ss, sheet, sheetName) {
+  var props = PropertiesService.getScriptProperties();
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  var snap = {
+    date: Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy'),
+    sheetName: sheetName
+  };
+
+  var lastRow = ratingsSheet ? ratingsSheet.getLastRow() : 0;
+  if (lastRow >= 2) {
+    snap.ratingsAD = serializeGrid(ratingsSheet.getRange('A2:D' + lastRow).getValues());
+    snap.ratingsCH = ratingsSheet.getRange('CH2:CH' + lastRow).getValues();
+    snap.ratingsCK = ratingsSheet.getRange('CK2:CK' + lastRow).getValues();
+    snap.ratingsRows = lastRow - 1;
+  } else {
+    snap.ratingsAD = [];
+    snap.ratingsCH = [];
+    snap.ratingsCK = [];
+    snap.ratingsRows = 0;
+  }
+
+  snap.dateDEF = [];
+  snap.pointWinners = [];
+  for (var l = 0; l < 3; l++) {
+    snap.dateDEF.push(serializeGrid(sheet.getRange(LEAGUE_RATING_RANGES[l]).getValues()));
+    snap.pointWinners.push(sheet.getRange(POINT_WINNER_RANGES[l]).getValue());
+  }
+
+  // The engine only mutates the J column and the I/J/K name-cell colors inside
+  // each score range, so those are all we snapshot (keeps the property small).
+  snap.scoreJ = [];
+  snap.scoreIKBg = [];
+  for (var s = 0; s < 3; s++) {
+    var vals = sheet.getRange(SCORE_RANGES[s]).getValues();
+    var bg = sheet.getRange(SCORE_RANGES[s]).getBackgrounds();
+    var jj = [];
+    var bb = [];
+    for (var j = 0; j < vals.length; j++) {
+      jj.push(vals[j][1]);
+      bb.push([bg[j][0], bg[j][1], bg[j][2]]);
+    }
+    snap.scoreJ.push(jj);
+    snap.scoreIKBg.push(bb);
+  }
+
+  props.setProperty(ENGINE_RUN_SNAPSHOT_KEY + ss.getId(), JSON.stringify(snap));
+}
+
+/** Convert Date cells to {d: millis} so the snapshot survives JSON round-trip. */
+function serializeGrid(grid) {
+  return grid.map(function (row) {
+    return row.map(function (c) {
+      if (c instanceof Date && !isNaN(c.getTime())) return { d: c.getTime() };
+      return c;
+    });
+  });
+}
+
+/** Reverse of serializeGrid(): turn {d: millis} markers back into Date objects. */
+function deserializeGrid(grid) {
+  return grid.map(function (row) {
+    return row.map(function (c) {
+      if (c && typeof c === 'object' && !Array.isArray(c) && typeof c.d === 'number') {
+        return new Date(c.d);
+      }
+      return c;
+    });
+  });
+}
+
+/**
+ * Revert the most recent runRatingsEngine run. Undoes everything that run
+ * wrote: deletes that day's Rating History rows, restores the Ratings tab's
+ * ratings/rankings/emails (removing any rows the run added for new players),
+ * and restores the date sheet's D/E/F + J cells, point-winner cells, and
+ * winner-name colors. Confirms with the operator first so an accidental run
+ * cannot wipe data. The snapshot is consumed on success, so a second call is
+ * a no-op.
+ */
+function revertRatingsEngineRun() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var props = PropertiesService.getScriptProperties();
+  var key = ENGINE_RUN_SNAPSHOT_KEY + ss.getId();
+
+  var raw = props.getProperty(key);
+  if (!raw) {
+    ui.alert('Nothing to revert',
+      'No previous Ratings Engine run was found for this spreadsheet. Run the engine once before using Revert.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+    return;
+  }
+
+  var snap = JSON.parse(raw);
+  var confirm = ui.alert(
+    'Revert the last Ratings Engine run?',
+    'This undoes the most recent runRatingsEngine run:\n' +
+    '  - deletes the Rating History rows it added for ' + snap.date + '\n' +
+    '  - restores ratings, rankings, and emails on the Ratings tab (removing any new players it added)\n' +
+    '  - clears the D/E/F and J cells (and point-winner cells) it wrote on the "' + snap.sheetName + '" sheet\n\n' +
+    'This cannot be undone. Continue?',
+    SpreadsheetApp.getUi().ButtonSet.OK_CANCEL);
+  if (confirm !== SpreadsheetApp.getUi().Button.OK) return;
+
+  var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  var dateSheet = ss.getSheetByName(snap.sheetName);
+  if (!ratingsSheet || !dateSheet) {
+    ui.alert('Revert aborted',
+      'Could not find the Ratings tab or the date sheet "' + snap.sheetName + '". Nothing was changed.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+    return;
+  }
+
+  // 1. Ratings tab: restore A-D and emails; remove rows added after the run.
+  var oldRows = snap.ratingsRows;
+  var curRows = ratingsSheet.getLastRow() - 1;
+  if (curRows > oldRows) {
+    ratingsSheet.getRange(oldRows + 2, 1, curRows - oldRows, 90).clearContent();
+  }
+  if (oldRows > 0) {
+    ratingsSheet.getRange('A2:D' + (oldRows + 1)).setValues(deserializeGrid(snap.ratingsAD));
+    ratingsSheet.getRange('CH2:CH' + (oldRows + 1)).setValues(snap.ratingsCH);
+    ratingsSheet.getRange('CK2:CK' + (oldRows + 1)).setValues(snap.ratingsCK);
+  }
+
+  // 2. Date sheet: restore D/E/F, point winners, the J column, and the winner
+  // name-cell colors exactly as they were before the run.
+  for (var l = 0; l < 3; l++) {
+    dateSheet.getRange(LEAGUE_RATING_RANGES[l]).setValues(deserializeGrid(snap.dateDEF[l]));
+    dateSheet.getRange(POINT_WINNER_RANGES[l]).setValue(snap.pointWinners[l]);
+    var rg = dateSheet.getRange(SCORE_RANGES[l]);
+    var v = rg.getValues();
+    var bg = rg.getBackgrounds();
+    for (var j = 0; j < v.length; j++) {
+      v[j][1] = snap.scoreJ[l][j];
+      bg[j][0] = snap.scoreIKBg[l][j][0];
+      bg[j][1] = snap.scoreIKBg[l][j][1];
+      bg[j][2] = snap.scoreIKBg[l][j][2];
+    }
+    rg.setValues(v);
+    rg.setBackgrounds(bg);
+  }
+
+  // 3. Delete the Rating History rows this run stamped for its date.
+  var doomed = [];
+  var hist = ss.getSheetByName(RATINGS_HISTORY_SHEET_NAME);
+  if (hist) {
+    var runDate = parseDatedHeader(snap.date);
+    var histLast = hist.getLastRow();
+    if (runDate && histLast >= RATINGS_HISTORY_DATA_START_ROW) {
+      var hv = hist.getRange(RATINGS_HISTORY_DATA_START_ROW, 1,
+        histLast - RATINGS_HISTORY_DATA_START_ROW + 1, 2).getValues();
+      for (var r = 0; r < hv.length; r++) {
+        var d = parseDatedHeader(hv[r][1]);
+        if (d && isSameDay(d, runDate)) doomed.push(RATINGS_HISTORY_DATA_START_ROW + r);
+      }
+    }
+  }
+  var contiguous = doomed.length > 0;
+  for (var c = 1; c < doomed.length; c++) {
+    if (doomed[c] !== doomed[c - 1] + 1) { contiguous = false; break; }
+  }
+  if (contiguous && doomed.length > 0) {
+    hist.deleteRows(doomed[0], doomed.length);
+  } else {
+    for (var rd = doomed.length - 1; rd >= 0; rd--) hist.deleteRow(doomed[rd]);
+  }
+
+  props.deleteProperty(key);
+  ss.toast('Last Ratings Engine run reverted (removed ' + doomed.length + ' history rows).', 'Done', 3);
 }
 
 /** Parse a header cell value (Date, Excel serial, or date string) into a Date, or null. */

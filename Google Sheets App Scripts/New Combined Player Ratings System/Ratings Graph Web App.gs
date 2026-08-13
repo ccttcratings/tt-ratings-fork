@@ -191,18 +191,21 @@ function buildGraphData(id) {
         var nm = String(vals[i][1]).trim();
         if (nm === '') break;
         if (hidden[i + 2]) continue;
-        roster.push(nm);
         var d = vals[i][3];
         var ms = (d instanceof Date && !isNaN(d.getTime())) ? d.getTime() : null;
-        lastDate[nm] = ms;
-        // Same week 9-16 peach fade the Ratings tab applies to name cells, so
-        // the graph list fades exactly like the sheet.
         if (ms != null) {
           var daysInactive = Math.floor((today.getTime() - ms) / (1000 * 60 * 60 * 24));
+          // Permanently inactive players (past the 142-day window, i.e. beyond
+          // week 16 / every fade shade) are never included, whether or not the
+          // row happens to be hidden on the sheet. No extra cost: the date is
+          // already in hand.
+          if (daysInactive >= 142) continue;
           fade[nm] = graphFadePeach(daysInactive);
         } else {
           fade[nm] = null;
         }
+        lastDate[nm] = ms;
+        roster.push(nm);
       }
     }
   }
