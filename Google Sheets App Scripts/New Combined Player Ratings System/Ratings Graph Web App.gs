@@ -127,6 +127,35 @@ function getGraphData(ss) {
 }
 
 /**
+ * Forced rebuild, called by runRatingsEngine after each run so the graph shows
+ * today's data immediately instead of waiting up to GRAPH_WEEK_MS. Mirrors the
+ * build path of getGraphData: rebuilds the payload from the spreadsheet, writes
+ * the fresh chunked payload + weekly stamp, and seeds a 6-hour CacheService
+ * copy. Between runs the page keeps hitting the cached/persisted payload (no
+ * spreadsheet reads), just as before.
+ */
+function refreshGraphPayload(id) {
+  // Accept a real spreadsheet ID (from runRatingsEngine) or a nickname
+  // ('combined' / 'ccttc', used for manual refresh / puppeteer tests).
+  // Resolve to the real ID so openById() and the cache/property keys line up
+  // with getGraphData().
+  var realId = RATINGS_GRAPH_SPREADSHEETS[id] || id;
+  var data = buildGraphData(realId);
+  var json = JSON.stringify(data);
+  var props = PropertiesService.getScriptProperties();
+  var now = Date.now();
+  try {
+    if (json.length < 100000) {
+      CacheService.getScriptCache().put(GRAPH_CACHE_PREFIX + realId, json, 21600); // 6h max TTL
+    }
+    if (writeGraphPayloadChunks(props, realId, json)) {
+      props.setProperty(GRAPH_STAMP_PREFIX + realId, String(now));
+    }
+  } catch (e) { /* persist failed (quota): next run rebuilds */ }
+  return data;
+}
+
+/**
  * Reassembles the chunked payload from Script Properties. Returns the raw JSON
  * string, or null when no chunks exist. Keys: graphPayload.<id>.0, .1, ...
  */

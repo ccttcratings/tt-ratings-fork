@@ -155,6 +155,7 @@ function newScoreSheet() {
   var sysRulesSheet = ss.getSheetByName("System/Rules");
   var insertIndex = sysRulesSheet ? sysRulesSheet.getIndex() : ss.getSheets().length;
   var sheet = ss.insertSheet(date_str, insertIndex, {template: template_sheet});
+  sheet.showSheet();
   ["E3:E8", "E20:E25", "E37:E42"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
   });

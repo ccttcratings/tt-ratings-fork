@@ -81,7 +81,7 @@ function ratingChange(ratingDiff, gameScoreDiff) {
     32: [96, 106, 116]
   };
 
-  var ratingChangeIndex = ratingRangeList.length - 1;
+  var ratingChangeIndex = ratingRangeList.length;
   for (var i = 0; i < ratingRangeList.length; i++) {
     if (ratingDiff <= ratingRangeList[i]) {
       ratingChangeIndex = i;

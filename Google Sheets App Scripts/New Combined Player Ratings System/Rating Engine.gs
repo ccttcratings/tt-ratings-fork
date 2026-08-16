@@ -81,12 +81,6 @@ function parseScoresRow(row) {
   };
 }
 
-function isSuspectedTypo(row) {
-  // Implemented in Player Ratings.gs (always deployed, both CCTTC and combined
-  // systems) — call it through the global scope so this file never shadows it.
-  return globalThis.isSuspectedTypo(row);
-}
-
 function runRatingsEngine() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
@@ -186,11 +180,24 @@ function runEngineCore(sheet, sheetName) {
     Logger.log('Players needing an initial rating in the Ratings sheet: ' + unrated.join(', '));
   }
 
+  // The session date (usually the date sheet's name, e.g. '08-15-2026'). Used
+  // for column D on the Ratings tab AND the Rating History rows, so both match
+  // the real session date even when the run happens on a later calendar day.
+  var today = /^\d{2}-\d{2}-\d{4}$/.test(sheetName)
+    ? sheetName
+    : Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+
   // Sort and write the Ratings tab (shared with rerankRatings()).
-  var result = writeRatingsTab(ss, ratingsSheet, currentRatings, changes);
+  var result = writeRatingsTab(ss, ratingsSheet, currentRatings, changes, today);
+  // The re-sort above moves names to different rows, but the fade colors are
+  // stored per ROW (not per player). Re-run the fade so each player's existing
+  // font colors are recomputed from their (new) D-column date and the rows that
+  // just shuffled don't show stale foreground colors from whoever sat there
+  // before. A player who scored today gets today's date in column D, so they
+  // resolve to "active" (no fade), even if their net ELO change was 0.
+  hideInactivePlayers();
   var outRows = result.outRows;
   var newRatings = result.newRatings;
-  var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
 
   // Participating players = everyone who appeared in a scored match this run.
   // Only these get a Ratings Graph entry for today; non-participants keep
@@ -371,6 +378,18 @@ function runEngineCore(sheet, sheetName) {
   // Append today's ratings for participating players to the Ratings Graph tab
   // (only players who actually played get a value in today's column).
   var histCount = updateRatingsHistory(participants, today);
+  // Force pending writes (history append, ELO columns, point-winner cells) out
+  // of the script's in-memory buffer so the graph payload refresh below sees
+  // today's rows through its separate openById() handle.
+  SpreadsheetApp.flush();
+
+  // Rebuild the graph payload for this spreadsheet so the published Ratings
+  // Graph reflects today's run immediately. No-op if this spreadsheet has no
+  // graph deployment configured.
+  if (ss.getId() === RATINGS_GRAPH_SPREADSHEETS.combined ||
+      ss.getId() === RATINGS_GRAPH_SPREADSHEETS.ccttc) {
+    refreshGraphPayload(ss.getId());
+  }
 
   Logger.log('Engine runRatingsEngine complete.');
   ss.toast('Ratings updated for ' + result.outRows.length + ' players (history: ' + histCount + ').', 'Done', 3);
@@ -596,7 +615,10 @@ function rerankRatings() {
  * @param {Object} changes name -> ELO change for this run
  * @return {Object} {outRows: Array<Array>, newRatings: Object}
  */
-function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
+function writeRatingsTab(ss, ratingsSheet, currentRatings, changes, todayStr) {
+  // todayStr (optional, 'MM-dd-yyyy') comes from the run's date sheet name so
+  // column D matches the session's real date, even when the engine is run on a
+  // later day. Defaults to the run date when not supplied (e.g. rerankRatings).
   // Build updated ratings list.
   var newRatings = {};
   var allNames = {};
@@ -617,10 +639,11 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
     return newRatings[b] - newRatings[a];
   });
 
-  var today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+  var today = todayStr || Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
 
-  // Preserve existing D-column dates; only players whose rating actually
-  // changed this run get today's date (D = "last date the rating changed").
+  // Preserve existing D-column dates; everyone who scored a match this run
+  // gets today's date even if their net ELO change is 0 (D = "last activity
+  // date" — a 0-point performance is still activity).
   var existingDates = {};
   var curValues = ratingsSheet.getRange('A2:D').getValues();
   for (var ci = 0; ci < curValues.length; ci++) {
@@ -636,8 +659,9 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
     var eName = String(emailValues[ei][0]).trim();
     if (eName === '') continue;
     emailsByName[eName] = {
-      primary: emailValues[ei][85] !== undefined ? emailValues[ei][85] : '',
-      secondary: emailValues[ei][88] !== undefined ? emailValues[ei][88] : ''
+      // Range is 'B2:CK', so index 0 = column B (2). CH (86) = 84, CK (89) = 87.
+      primary: emailValues[ei][84] !== undefined ? emailValues[ei][84] : '',
+      secondary: emailValues[ei][87] !== undefined ? emailValues[ei][87] : ''
     };
   }
 
@@ -645,7 +669,8 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes) {
   var outRows = [];
   for (var i = 0; i < sortedNames.length; i++) {
     var name = sortedNames[i];
-    var changed = (changes[name] || 0) !== 0;
+    // "Changed" = appeared in a scored match this run (even a net-0 one).
+    var changed = changes[name] !== undefined;
     var dVal = changed ? today : (existingDates[name] !== undefined ? existingDates[name] : '');
     outRows.push([i + 1, name, round2(newRatings[name]), dVal]);
   }
@@ -714,7 +739,12 @@ function updateRatingsHistory(participants, todayStr) {
     if (!hist) return 0;
   }
 
-  var today = parseDatedHeader(todayStr);
+  // '08-15-2026' comes straight from the date sheet's name. Build the Date at
+  // midnight in the spreadsheet's timezone: parsing in the script timezone
+  // shifts the displayed history day one earlier when the sheet timezone is
+  // behind it (e.g. UTC script vs US sheet) — the 8-14 vs 8-15 you saw.
+  var tz = ss.getSpreadsheetTimeZone();
+  var today = parseDateInSheetTz(todayStr, tz);
   if (!today) return 0;
 
   var headerRow = RATINGS_HISTORY_HEADER_ROW;
@@ -784,7 +814,9 @@ function snapshotEngineRunState(ss, sheet, sheetName) {
   var props = PropertiesService.getScriptProperties();
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
   var snap = {
-    date: Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy'),
+    date: /^\d{2}-\d{2}-\d{4}$/.test(sheetName)
+      ? sheetName
+      : Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy'),
     sheetName: sheetName
   };
 
@@ -950,6 +982,25 @@ function revertRatingsEngineRun() {
 
   props.deleteProperty(key);
   ss.toast('Last Ratings Engine run reverted (removed ' + doomed.length + ' history rows).', 'Done', 3);
+}
+
+/** Parse a 'MM-dd-yyyy' string into a Date at midnight in the given timezone,
+ *  so a date written to a cell displays as that same calendar day (script
+ *  timezones like GMT would otherwise shift it to the previous day in a sheet
+ *  that is behind UTC). Returns null when not parseable. */
+function parseDateInSheetTz(dateStr, tz) {
+  if (typeof dateStr !== 'string') return null;
+  var m = dateStr.trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (!m) return null;
+  var mm = parseInt(m[1], 10), dd = parseInt(m[2], 10), yyyy = parseInt(m[3], 10);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  try {
+    return Utilities.parseDate(
+      (mm < 10 ? '0' : '') + mm + '-' + (dd < 10 ? '0' : '') + dd + '-' + yyyy,
+      tz, 'MM-dd-yyyy');
+  } catch (e) {
+    return null;
+  }
 }
 
 /** Parse a header cell value (Date, Excel serial, or date string) into a Date, or null. */

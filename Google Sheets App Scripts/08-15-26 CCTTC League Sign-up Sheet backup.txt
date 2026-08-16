@@ -25,7 +25,7 @@ function sendSaturdayEmail() {
     const signUpData = signUpSheet.getDataRange().getValues();
     const headers = signUpData[HEADER_ROW - 1];
     const emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
-    const playingColIndex = headers.findIndex(h => String(h).toLowerCase().includes('are you playing') || String(h).toLowerCase().includes('playing'));
+    const playingColIndex = headers.findIndex(h => String(h).toLowerCase().includes('are you playing') || String(h).toLowerCase().includes('playing') || String(h).toLowerCase().includes('responses'));
     const nameColIndex = headers.findIndex(h => String(h).toLowerCase().includes('name'));
 
     if (emailColIndex === -1 || playingColIndex === -1 || nameColIndex === -1) {
