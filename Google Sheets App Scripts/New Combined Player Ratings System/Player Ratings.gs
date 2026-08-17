@@ -681,12 +681,12 @@ function findWinners() {
       if (winner_id == 1) {
         ++league_results[i][p1_name].won_games;
         league_results[i][p1_name].won_against.push(p2_name);
-        sheet.getRange(base_index + j, 7).setBackground("#ea9999");
+        sheet.getRange(base_index + j, 7).setBackground("#ffa5a5");
         Logger.log("  -> " + p1_name + " wins (highlighting G" + (base_index + j) + ")");
       } else if (winner_id == 2) {
         ++league_results[i][p2_name].won_games;
         league_results[i][p2_name].won_against.push(p1_name);
-        sheet.getRange(base_index + j, 8).setBackground("#ea9999");
+        sheet.getRange(base_index + j, 8).setBackground("#ffa5a5");
         Logger.log("  -> " + p2_name + " wins (highlighting H" + (base_index + j) + ")");
       } else if (winner_id == 3) {
         sheet.getRange(base_index + j, 7).setBackground("#b3a7d7");

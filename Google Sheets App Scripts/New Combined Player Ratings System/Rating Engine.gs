@@ -13,7 +13,7 @@
  *   A = rank, B = player name, C = club rating, D = last-updated date,
  *   E = Equalize button (instructions below), F = USATT rating,
  *   G = USATT date earned, H = Show Inactive button, I-J blank,
- *   K = Hide Inactive button, CH = primary emails, CK = secondary emails.
+ *   K = Hide Inactive button, CZ = primary emails, DC = secondary emails.
  *
  * Dated rating history lives on a hidden "Rating History" tab in long/tidy
  * format: header row 1 (A=Player, B=Date, C=Rating) and one data row per
@@ -528,7 +528,7 @@ function insertNewPlayerRow(ratingsSheet, name, rating) {
   return newRow;
 }
 
-/** Ask for the player's primary email (written to CH); may be left blank. */
+/** Ask for the player's primary email (written to CZ); may be left blank. */
 function showNewPlayerEmailDialog(name, row) {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createHtmlOutput(buildNewPlayerEmailDialogHtml(name, row))
@@ -557,7 +557,7 @@ function buildNewPlayerEmailDialogHtml(name, row) {
 }
 
 /**
- * Write the email to CH (index 85), then either present the next new player or
+ * Write the email to CZ (column 104), then either present the next new player or
  * resume the run (typo gate + ELO computation). The pending list is re-derived
  * from the sheet so already-inserted players drop out automatically.
  */
@@ -565,7 +565,7 @@ function addNewPlayerEmail(name, row, email) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
   if (email && String(email).trim() !== '') {
-    ratingsSheet.getRange(row, 86).setValue(String(email).trim());
+    ratingsSheet.getRange(row, 104).setValue(String(email).trim());
   }
   var sheet = resolveEngineSheet();
   var remaining = findNewPlayers(sheet);
@@ -604,7 +604,7 @@ function rerankRatings() {
 
 /**
  * Sort the Ratings tab by rating (descending) and rewrite A-D (rank, name,
- * rating, last-changed date) plus the email columns (CH primary, CK
+ * rating, last-changed date) plus the email columns (CZ primary, DC
  * secondary) aligned to the new row order. ELO changes are applied by
  * runRatingsEngine() and passed in as `changes`; rerankRatings() passes
  * an empty map so no rating value changes, only row order.
@@ -651,17 +651,17 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes, todayStr) {
     if (cName !== '') existingDates[cName] = curValues[ci][3];
   }
 
-  // Preserve player emails (CH = primary, CK = secondary) so they follow the
+  // Preserve player emails (CZ = primary, DC = secondary) so they follow the
   // players when rankings shuffle. Emails are keyed by name, not by row.
   var emailsByName = {};
-  var emailValues = ratingsSheet.getRange('B2:CK').getValues();
+  var emailValues = ratingsSheet.getRange('B2:DC').getValues();
   for (var ei = 0; ei < emailValues.length; ei++) {
     var eName = String(emailValues[ei][0]).trim();
     if (eName === '') continue;
     emailsByName[eName] = {
-      // Range is 'B2:CK', so index 0 = column B (2). CH (86) = 84, CK (89) = 87.
-      primary: emailValues[ei][84] !== undefined ? emailValues[ei][84] : '',
-      secondary: emailValues[ei][87] !== undefined ? emailValues[ei][87] : ''
+      // Range is 'B2:DC', so index 0 = column B (2). CZ (104) = 102, DC (107) = 105.
+      primary: emailValues[ei][102] !== undefined ? emailValues[ei][102] : '',
+      secondary: emailValues[ei][105] !== undefined ? emailValues[ei][105] : ''
     };
   }
 
@@ -679,7 +679,7 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes, todayStr) {
   }
 
   // Re-write emails aligned to the new (sorted) row order so they stay with
-  // the right player. CH = primary, CK = secondary.
+  // the right player. CZ = primary, DC = secondary.
   var hVals = [];
   var kVals = [];
   for (var ori = 0; ori < outRows.length; ori++) {
@@ -689,10 +689,10 @@ function writeRatingsTab(ss, ratingsSheet, currentRatings, changes, todayStr) {
     kVals.push([em.secondary || '']);
   }
   if (hVals.length > 0) {
-    ratingsSheet.getRange('CH2:CH' + (hVals.length + 1)).setValues(hVals);
+    ratingsSheet.getRange('CZ2:CZ' + (hVals.length + 1)).setValues(hVals);
   }
   if (kVals.length > 0) {
-    ratingsSheet.getRange('CK2:CK' + (kVals.length + 1)).setValues(kVals);
+    ratingsSheet.getRange('DC2:DC' + (kVals.length + 1)).setValues(kVals);
   }
 
   return { outRows: outRows, newRatings: newRatings };
@@ -805,7 +805,7 @@ function createRatingsHistoryTab(ss) {
 
 /**
  * Snapshot the exact pre-run state so revertRatingsEngineRun() can undo a run:
- * the Ratings tab's A-D grid and CH/CK emails, the date sheet's D/E/F and
+ * the Ratings tab's A-D grid and CZ/DC emails, the date sheet's D/E/F and
  * point-winner cells, the score rows' J column plus I/J/K cell colors, and the
  * run date (used to delete today's Rating History rows). Stored per
  * spreadsheet; a newer run replaces the older snapshot.
@@ -823,13 +823,13 @@ function snapshotEngineRunState(ss, sheet, sheetName) {
   var lastRow = ratingsSheet ? ratingsSheet.getLastRow() : 0;
   if (lastRow >= 2) {
     snap.ratingsAD = serializeGrid(ratingsSheet.getRange('A2:D' + lastRow).getValues());
-    snap.ratingsCH = ratingsSheet.getRange('CH2:CH' + lastRow).getValues();
-    snap.ratingsCK = ratingsSheet.getRange('CK2:CK' + lastRow).getValues();
+    snap.ratingsCZ = ratingsSheet.getRange('CZ2:CZ' + lastRow).getValues();
+    snap.ratingsDC = ratingsSheet.getRange('DC2:DC' + lastRow).getValues();
     snap.ratingsRows = lastRow - 1;
   } else {
     snap.ratingsAD = [];
-    snap.ratingsCH = [];
-    snap.ratingsCK = [];
+    snap.ratingsCZ = [];
+    snap.ratingsDC = [];
     snap.ratingsRows = 0;
   }
 
@@ -929,12 +929,12 @@ function revertRatingsEngineRun() {
   var oldRows = snap.ratingsRows;
   var curRows = ratingsSheet.getLastRow() - 1;
   if (curRows > oldRows) {
-    ratingsSheet.getRange(oldRows + 2, 1, curRows - oldRows, 90).clearContent();
+    ratingsSheet.getRange(oldRows + 2, 1, curRows - oldRows, 107).clearContent();
   }
   if (oldRows > 0) {
     ratingsSheet.getRange('A2:D' + (oldRows + 1)).setValues(deserializeGrid(snap.ratingsAD));
-    ratingsSheet.getRange('CH2:CH' + (oldRows + 1)).setValues(snap.ratingsCH);
-    ratingsSheet.getRange('CK2:CK' + (oldRows + 1)).setValues(snap.ratingsCK);
+    ratingsSheet.getRange('CZ2:CZ' + (oldRows + 1)).setValues(snap.ratingsCZ);
+    ratingsSheet.getRange('DC2:DC' + (oldRows + 1)).setValues(snap.ratingsDC);
   }
 
   // 2. Date sheet: restore D/E/F, point winners, the J column, and the winner

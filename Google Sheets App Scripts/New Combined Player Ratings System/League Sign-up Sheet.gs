@@ -33,7 +33,7 @@ function sendSaturdayEmail() {
       return;
     }
 
-    const ratingsData = ratingsSheet.getRange('A2:CK').getValues();
+    const ratingsData = ratingsSheet.getRange('A2:DC').getValues();
     const emailToRating = {};
     const emailToDBName = {};
 
@@ -48,8 +48,8 @@ function sendSaturdayEmail() {
     }
 
     for (let i = 0; i < ratingsData.length; i++) {
-      addEmailLookup(ratingsData[i][85], ratingsData[i][2], ratingsData[i][1]);
-      addEmailLookup(ratingsData[i][88], ratingsData[i][2], ratingsData[i][1]);
+      addEmailLookup(ratingsData[i][103], ratingsData[i][2], ratingsData[i][1]);
+      addEmailLookup(ratingsData[i][106], ratingsData[i][2], ratingsData[i][1]);
     }
 
     const yesPlayers = [];

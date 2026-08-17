@@ -29,7 +29,7 @@
  * Combined Ratings tab columns:
  *   A=rank  B=name  C=club rating  D=club rating date  E=Player Ratings Graph link
  *   F=USATT rating  G=USATT date earned  H=Show Inactive button
- *   I-J blank  K=Hide Inactive button  CB=primary emails  CE=secondary emails
+ *   I-J blank  K=Hide Inactive button  CZ=primary emails  DC=secondary emails
  *   (The Equalize button lives on the System/Rules tab at B40.)
  *
  * Staleness: a rating older than SETUP staleness years is VOID. It is NOT
