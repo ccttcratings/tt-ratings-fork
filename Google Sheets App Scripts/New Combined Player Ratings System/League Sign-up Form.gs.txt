@@ -9,12 +9,12 @@ function newLeagueDate() {
   for (var i = 0; i < formItems.length; i++) {
     var title = formItems[i].getTitle();
     if (/email/i.test(title)) {
-      formItems[i].setTitle('Email Addresses');
+      formItems[i].setTitle('Email address');
     } else if (/name/i.test(title)) {
-      formItems[i].setTitle('Names');
+      formItems[i].setTitle('Name');
     }
   }
-  form.getItemById(598333706).setTitle('Responses');
+  form.getItemById(598333706).setTitle('Are you playing?');
 
   var now = new Date();
   var ss_id = form.getDestinationId();
@@ -49,17 +49,8 @@ function newLeagueDate() {
   SpreadsheetApp.flush();
   sheet = ss.getSheets()[0];
   sheet.setName(raw_sheet_name);
-
-    // Re-apply the current tab's headers after the form's async push settles
-    // (the form push can revert A1/B1 to singular "Timestamp"/"Email Address").
-    sheet.getRange('A1').setValue('Timestamps');
-    sheet.getRange('B1').setValue('Email Addresses');
-    sheet.getRange('C1').setValue('Names');
-    sheet.getRange('D1').setValue('Responses');
-    sheet.hideSheet();
-    SpreadsheetApp.flush();
 }
-
+     
 function limitYesResponses() {
   var form = FormApp.getActiveForm();
   var itemId = 598333706;

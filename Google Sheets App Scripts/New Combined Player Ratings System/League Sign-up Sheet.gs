@@ -1,5 +1,5 @@
 const RESPONSE_SPREADSHEET_ID = '1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk';
-const MAIN_SPREADSHEET_ID = '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg';
+const MAIN_SPREADSHEET_ID = '1NdnC1kN831FVfcInOmFBfe-PU5tgKjFh3I-uxPdVGJM';
 const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com, bryant@champaigntabletennis.com';
 const HEADER_ROW = 1;
 
@@ -86,28 +86,31 @@ function sendSaturdayEmail() {
     emailBody += `<h2>Saturday Table Tennis Sign-ups for ${sheetName}</h2>`;
     emailBody += '<h3>Players Planning to Attend:</h3>';
     emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
-    emailBody += '<tr><th style="background-color: #90EE90; padding: 8px;"></th><th style="background-color: #90EE90; padding: 8px;">Name</th><th style="background-color: #90EE90; padding: 8px;">Rating</th><th style="background-color: #90EE90; padding: 8px;">Status</th></tr>';
-
+    emailBody += '<tr><th style="background-color: #b6d7a8; padding: 8px;"></th><th style="background-color: #b6d7a8; padding: 8px;">Names</th><th style="background-color: #b6d7a8; padding: 8px;">Ratings</th><th style="background-color: #b6d7a8; padding: 8px; text-align: center;">Responses</th></tr>';
+    
+    // Loop 1: YES Players (Response centered)
     for (let i = 0; i < yesPlayers.length; i++) {
       const player = yesPlayers[i];
-      emailBody += `<tr><td>${i + 1}.</td><td>${player.name}</td><td>${player.rating.toFixed(2)}</td><td>${player.playingStatus}</td></tr>`;
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td></tr>`;
     }
 
     emailBody += '</table>';
     emailBody += '<hr style="border: 2px solid black; margin: 20px 0;">';
     emailBody += '<h3>Other Responses:</h3>';
     emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
-    emailBody += '<tr><th style="background-color: #FFA5A5; padding: 8px;"></th><th style="background-color: #FFA5A5; padding: 8px;">Name</th><th style="background-color: #FFA5A5; padding: 8px;">Rating</th><th style="background-color: #FFA5A5; padding: 8px;">Status</th></tr>';
+    emailBody += '<tr><th style="background-color: #FFA5A5; padding: 8px;"></th><th style="background-color: #FFA5A5; padding: 8px;">Names</th><th style="background-color: #FFA5A5; padding: 8px;">Ratings</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Responses</th></tr>';
 
+    // Loop 2: OTHER Players (Response centered)
     for (let i = 0; i < otherPlayers.length; i++) {
       const player = otherPlayers[i];
-      emailBody += `<tr><td>${i + 1}.</td><td>${player.name}</td><td>${player.rating.toFixed(2)}</td><td>${player.playingStatus}</td></tr>`;
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td></tr>`;
     }
 
     emailBody += '</table>';
     emailBody += `<p><br>Total responses: ${yesPlayers.length + otherPlayers.length}</p>`;
     emailBody += `<p>Players planning to attend: ${yesPlayers.length}</p>`;
     emailBody += '</body></html>';
+    
 
     GmailApp.sendEmail(
       RECIPIENT_EMAIL,
@@ -222,16 +225,16 @@ function populateDisplayTab() {
     }
     var rawLastCol = rawSheet.getLastColumn();
     var headers = rawSheet.getRange(1, 1, 1, rawLastCol).getValues()[0];
-    var tsIdx = -1, emailIdx = -1, nameIdx = -1, respIdx = -1;
+    var tsIdx = -1, emailIdx = -1, nameIdx = -1, playingIdx = -1;
     for (var c = 0; c < headers.length; c++) {
       var h = String(headers[c] || '').toLowerCase();
       if (h.indexOf('timestamp') !== -1) { tsIdx = c; }
       else if (h.indexOf('email') !== -1) { emailIdx = c; }
       else if (h.indexOf('name') !== -1) { nameIdx = c; }
-      else if (h.indexOf('response') !== -1) { respIdx = c; }
+      else if (h.indexOf('playing') !== -1) { playingIdx = c; }
     }
-    if (tsIdx === -1 || emailIdx === -1 || nameIdx === -1 || respIdx === -1) {
-      tsIdx = 0; emailIdx = 1; nameIdx = 2; respIdx = 3;
+    if (tsIdx === -1 || emailIdx === -1 || nameIdx === -1 || playingIdx === -1) {
+      tsIdx = 0; emailIdx = 1; nameIdx = 2; playingIdx = 3;
     }
 
     var dataRows = rawSheet.getRange(2, 1, rawLastRow - 1, rawLastCol).getValues();
@@ -241,13 +244,13 @@ function populateDisplayTab() {
       var ts = row[tsIdx];
       var email = String(row[emailIdx] || '').trim();
       var name = String(row[nameIdx] || '').trim();
-      var resp = String(row[respIdx] || '').trim();
-      var combined = (email + ' ' + name + ' ' + resp).toLowerCase();
+      var playing = String(row[playingIdx] || '').trim();
+      var combined = (email + ' ' + name + ' ' + playing).toLowerCase();
       if (combined.indexOf('player limit') !== -1 || combined.indexOf('total player') !== -1) {
         continue;
       }
-      if (!email && !name && !resp) { continue; }
-      players.push([ts, email, name, resp]);
+      if (!email && !name && !playing) { continue; }
+      players.push([ts, '  ' + email, '  ' + name, playing]);
     }
     if (players.length === 0) {
       Logger.log('No valid responses to populate.');
@@ -353,13 +356,15 @@ function refreshDisplayTab() {
 }
 
 function formatDisplayRows(display, playerCount) {
-  if (!playerCount || playerCount < 1) return;
-  var lastRow = 5 + playerCount;
+  try {
+    if (!playerCount || playerCount < 1) return;
+    var lastRow = 5 + playerCount;
   var black = '#000000';
   var thin = SpreadsheetApp.BorderStyle.SOLID_THIN;
+  var medium = SpreadsheetApp.BorderStyle.SOLID_MEDIUM;
   var thick = SpreadsheetApp.BorderStyle.SOLID_THICK;
   for (var r = 6; r <= lastRow; r++) {
-    var alt = ((r - 6) % 2 === 0) ? '#d9d9d9' : '#ffffff';
+    var alt = ((r - 6) % 2 === 0) ? '#ffffff' : '#d9d9d9';
     display.getRange(r, 1, 1, 11).setFontFamily('Roboto').setFontSize(11).setFontWeight('bold').setFontColor(black);
     for (var c = 1; c <= 11; c++) {
       var cell = display.getRange(r, c);
@@ -369,48 +374,50 @@ function formatDisplayRows(display, playerCount) {
           break;
         case 2:
           cell.setBackground('#dad3bc');
-          cell.setBorder(false, true, false, false, false, false, black, thin);
-          cell.setBorder(false, false, false, true, false, false, black, thick);
+          cell.setBorder(null, true, null, null, false, false, black, medium);
+          cell.setBorder(null, null, null, true, false, false, black, thick);
           break;
         case 3:
           cell.setBackground('#b3ab8d');
-          cell.setBorder(false, false, false, true, false, false, black, thick);
+          cell.setBorder(null, null, null, true, false, false, black, thick);
           break;
         case 4:
           cell.setBackground(alt);
-          cell.setBorder(true, false, false, false, false, false, black, thick);
+          cell.setBorder(true, null, null, null, false, false, black, thin);
           cell.setValue((r - 5) + ".");
           cell.setHorizontalAlignment('center').setVerticalAlignment('middle');
           break;
         case 5:
           cell.setBackground(alt);
-          cell.setBorder(false, true, false, true, false, false, black, thin);
-          cell.setBorder(true, false, false, false, false, false, black, thick);
+          cell.setBorder(null, true, null, true, false, false, black, thin);
+          cell.setBorder(true, null, null, null, false, false, black, thin);
+          cell.setNumberFormat('M/d/yyyy HH:mm:ss');
           cell.setHorizontalAlignment('center').setVerticalAlignment('middle');
           break;
         case 6:
           cell.setBackground(alt);
-          cell.setBorder(true, false, false, false, false, false, black, thick);
+          cell.setBorder(true, null, null, null, false, false, black, thin);
           cell.setHorizontalAlignment('left').setVerticalAlignment('middle');
           break;
         case 7:
           cell.setBackground(alt);
-          cell.setBorder(false, true, false, true, false, false, black, thin);
-          cell.setBorder(true, false, false, false, false, false, black, thick);
+          cell.setBorder(null, true, null, true, false, false, black, thin);
+          cell.setBorder(true, null, null, null, false, false, black, thin);
           cell.setHorizontalAlignment('left').setVerticalAlignment('middle');
           break;
         case 8:
           cell.setBackground(alt);
-          cell.setBorder(true, false, false, false, false, false, black, thick);
+          cell.setBorder(true, null, null, null, false, false, black, thin);
           cell.setHorizontalAlignment('center').setVerticalAlignment('middle');
           break;
         case 9:
           cell.setBackground('#dad3bc');
-          cell.setBorder(false, true, false, true, false, false, black, thick);
+          cell.setBorder(null, true, null, true, false, false, black, thick);
           break;
         case 10:
           cell.setBackground('#b3ab8d');
-          cell.setBorder(false, false, false, true, false, false, black, thin);
+          cell.setBorder(null, true, null, null, false, false, black, thick);
+          cell.setBorder(null, null, null, true, false, false, black, medium);
           break;
         case 11:
           cell.setBackground('#d9ead3');
@@ -419,6 +426,8 @@ function formatDisplayRows(display, playerCount) {
     }
     display.setRowHeight(r, 30);
   }
+  display.getRange(5, 4, 1, 5).setBorder(null, null, true, null, false, false, black, thick);
+  } catch (error) {
+    sendErrorEmail('Error in formatDisplayRows: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  }
 }
-
-
