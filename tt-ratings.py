@@ -779,15 +779,15 @@ class GoogleSheet():
         return self.all_players
 
     def get_player_emails_from_sheet(self):
-        """Get all player emails from columns CB and CD of the Ratings sheet"""
+        """Get all player emails from columns CZ and DC of the Ratings sheet"""
         if self.sheet is None:
             self.get_sheet()
 
         try:
-            # Read player names (column B) and emails (columns CB, CD) together
+            # Read player names (column B) and emails (columns CZ, DC) together
             result = self.sheet.values().get(
                 spreadsheetId=self.SPREADSHEET_ID,
-                range='Ratings!B2:CD'
+                range='Ratings!B2:DC'
             ).execute()
 
             values = result.get('values', [])
@@ -797,12 +797,12 @@ class GoogleSheet():
                 if row and row[0]:  # If there's a player name in column B
                     player_name = row[0].strip()
                     # Column B = index 0
-                    # CB is 78 columns after B (index 78)
-                    # CD is 80 columns after B (index 80)
-                    email_cb = row[78].strip() if len(row) > 78 and row[78] else ''
-                    email_cd = row[80].strip() if len(row) > 80 and row[80] else ''
-                    if email_cb or email_cd:
-                        player_emails[player_name] = [email_cb, email_cd]
+                    # CZ is 102 columns after B (index 102)
+                    # DC is 105 columns after B (index 105)
+                    email_cz = row[102].strip() if len(row) > 102 and row[102] else ''
+                    email_dc = row[105].strip() if len(row) > 105 and row[105] else ''
+                    if email_cz or email_dc:
+                        player_emails[player_name] = [email_cz, email_dc]
 
             print(f'Retrieved {len(player_emails)} player emails from Ratings sheet')
             return player_emails
@@ -811,32 +811,32 @@ class GoogleSheet():
             return {}
 
     def update_player_emails_in_sheet(self, player_emails, all_player_names, new_emails=None):
-        """Update player emails in columns CB and CD for all ranked players"""
+        """Update player emails in columns CZ and DC for all ranked players"""
         if self.sheet is None:
             self.get_sheet()
 
         try:
-            # Clear old emails in CB and CD from row 2 onward
+            # Clear old emails in CZ and DC from row 2 onward
             max_clear_row = max(len(all_player_names) + 5, 200)
             self.sheet.values().clear(
                 spreadsheetId=self.SPREADSHEET_ID,
-                range=f'Ratings!CB2:CD{max_clear_row}'
+                range=f'Ratings!CZ2:DC{max_clear_row}'
             ).execute()
 
-            # Build email data for every row in the rankings (CB and CD written separately)
+            # Build email data for every row in the rankings (CZ and DC written separately)
             email_data = []
             row_num = 2
             for player_name in all_player_names:
-                email_cb = ''
-                email_cd = ''
+                email_cz = ''
+                email_dc = ''
                 if player_name and player_name != '---' and player_name != 'Not in Database':
                     if player_emails and player_name in player_emails:
-                        email_cb = player_emails[player_name][0] if player_emails[player_name] else ''
-                        email_cd = player_emails[player_name][1] if len(player_emails[player_name]) > 1 else ''
+                        email_cz = player_emails[player_name][0] if player_emails[player_name] else ''
+                        email_dc = player_emails[player_name][1] if len(player_emails[player_name]) > 1 else ''
                     if new_emails and player_name in new_emails:
-                        email_cb = new_emails[player_name]
-                email_data.append({'range': f'Ratings!CB{row_num}', 'values': [[email_cb]]})
-                email_data.append({'range': f'Ratings!CD{row_num}', 'values': [[email_cd]]})
+                        email_cz = new_emails[player_name]
+                email_data.append({'range': f'Ratings!CZ{row_num}', 'values': [[email_cz]]})
+                email_data.append({'range': f'Ratings!DC{row_num}', 'values': [[email_dc]]})
                 row_num += 1
 
             # Batch write all email rows
@@ -849,7 +849,7 @@ class GoogleSheet():
                     spreadsheetId=self.SPREADSHEET_ID,
                     body=body
                 ).execute()
-                print(f'Updated {len(email_data)} player email rows in columns CB and CD')
+                print(f'Updated {len(email_data)} player email rows in columns CZ and DC')
 
         except HttpError as err:
             print(f'Failed to update player emails: {err}')
@@ -1212,8 +1212,8 @@ class GoogleSheet():
             self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_RANGE,
                                        valueInputOption='RAW', body={'values': all_player_ratings}).execute()
 
-            # Restore player emails to columns CB and CD with updated rankings
-            print('Updating player emails in columns CB and CD with new rankings...')
+            # Restore player emails to columns CZ and DC with updated rankings
+            print('Updating player emails in columns CZ and DC with new rankings...')
             all_player_names = [p[1] for p in all_player_ratings]
             self.update_player_emails_in_sheet(player_emails, all_player_names, new_emails)
 
