@@ -632,17 +632,17 @@ function findWinners() {
         continue;
       }
 
-      if (!league_results[i][p1_name] || !league_results[i][p2_name]) {
-        Logger.log("Warning: Player not found in league " + i + ": '" + p1_name + "' or '" + p2_name + "'");
-        Logger.log("Available players: " + Object.keys(league_results[i]).join(", "));
-        continue;
+      // Determine if this is an official round-robin match for standings purposes.
+      // We check count_row first (which only includes league roster players).
+      // For players not in league_results, treat as extra match.
+      var isOfficialMatch = false;
+      if (league_results[i][p1_name] && league_results[i][p2_name]) {
+        isOfficialMatch = count_row[i][j];
+      } else {
+        Logger.log("Extra match (players not in league roster): " + p1_name + " vs " + p2_name);
       }
-
-      // Only count rows that are part of the official round-robin schedule
-      // (rematches, guest matches, incomplete rounds are excluded above).
-      if (!count_row[i][j]) {
-        Logger.log("Non round-robin match ignored: " + p1_name + " vs " + p2_name);
-        continue;
+      if (!isOfficialMatch) {
+        Logger.log("Extra match (not counted for standings): " + p1_name + " vs " + p2_name);
       }
 
       var scores_only = [];
@@ -679,29 +679,36 @@ function findWinners() {
       Logger.log("Match " + (j+1) + ": " + p1_name + " vs " + p2_name + " - Winner ID: " + winner_id + ", Scores: " + scores_only.join(","));
 
       if (winner_id == 1) {
-        ++league_results[i][p1_name].won_games;
-        league_results[i][p1_name].won_against.push(p2_name);
+        if (isOfficialMatch) {
+          ++league_results[i][p1_name].won_games;
+          league_results[i][p1_name].won_against.push(p2_name);
+        }
         sheet.getRange(base_index + j, 7).setBackground("#ffa5a5");
-        Logger.log("  -> " + p1_name + " wins (highlighting G" + (base_index + j) + ")");
+        Logger.log("  -> " + p1_name + " wins (highlighting G" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
       } else if (winner_id == 2) {
-        ++league_results[i][p2_name].won_games;
-        league_results[i][p2_name].won_against.push(p1_name);
+        if (isOfficialMatch) {
+          ++league_results[i][p2_name].won_games;
+          league_results[i][p2_name].won_against.push(p1_name);
+        }
         sheet.getRange(base_index + j, 8).setBackground("#ffa5a5");
-        Logger.log("  -> " + p2_name + " wins (highlighting H" + (base_index + j) + ")");
+        Logger.log("  -> " + p2_name + " wins (highlighting H" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
       } else if (winner_id == 3) {
         sheet.getRange(base_index + j, 7).setBackground("#b3a7d7");
         sheet.getRange(base_index + j, 8).setBackground("#b3a7d7");
-        Logger.log("  -> Tie (highlighting G" + (base_index + j) + " and H" + (base_index + j) + ")");
+        Logger.log("  -> Tie (highlighting G" + (base_index + j) + " and H" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
       } else {
         Logger.log("  -> No winner determined (winner_id = " + winner_id + ")");
       }
 
-      league_results[i][p1_name].match_diffs[p2_name] = p1vp2_score_diffs;
-      league_results[i][p2_name].match_diffs[p1_name] = p2vp1_score_diffs;
-      league_results[i][p1_name].scores_w[p2_name] = p1_scores_w;
-      league_results[i][p1_name].scores_l[p2_name] = p1_scores_l;
-      league_results[i][p2_name].scores_w[p1_name] = p2_scores_w;
-      league_results[i][p2_name].scores_l[p1_name] = p2_scores_l;
+      // Only record match data for official round-robin matches
+      if (isOfficialMatch) {
+        league_results[i][p1_name].match_diffs[p2_name] = p1vp2_score_diffs;
+        league_results[i][p2_name].match_diffs[p1_name] = p2vp1_score_diffs;
+        league_results[i][p1_name].scores_w[p2_name] = p1_scores_w;
+        league_results[i][p1_name].scores_l[p2_name] = p1_scores_l;
+        league_results[i][p2_name].scores_w[p1_name] = p2_scores_w;
+        league_results[i][p2_name].scores_l[p1_name] = p2_scores_l;
+      }
     }
   }
 

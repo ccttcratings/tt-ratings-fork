@@ -49,6 +49,7 @@ function newLeagueDate() {
   SpreadsheetApp.flush();
   sheet = ss.getSheets()[0];
   sheet.setName(raw_sheet_name);
+  sheet.hideSheet();
 }
      
 function limitYesResponses() {

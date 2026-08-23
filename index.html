@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    /* ----------------------------------------------------
+       THE FIX: Intercept Dark Reader for the Blue Hub Button 
+       NOTE: not using prefers-color-scheme — it follows the OS
+       theme (which can be dark while nothing darkens the page),
+       while this attribute only appears when Dark Reader is
+       actually rendering the page dark.
+       ---------------------------------------------------- */
+    html[data-darkreader-scheme="dark"] .hub {
+      background-color: #132646 !important;
+      color: #a8c7fa !important;
+    }
+
+    /* Core Layout Styles */
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #fce5cd; text-align: center; padding: 8px 24px; margin: 0; }
+    .card { background: #fce5cd; max-width: 400px; margin: 0 auto; padding: 6px 20px 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+    h2 { color: #000; margin-bottom: 42px; font-size: 30px; }
+    p { color: #e07474; font-size: 16px; margin-bottom: 30px; }
+    .btn { display: block; text-decoration: none; padding: 10px; margin: 2px 0; border: 2px solid #000; border-radius: 8px; font-weight: bold; font-size: 20px; transition: transform 0.1s; }
+    .btn:active { transform: scale(0.98); }
+    
+    /* Standard Light Mode Declarations */
+    .preview { background-color: #c5eec5; color: #573a1e; margin-bottom: 2px; }
+    .edit { background-color: #ffa5a5; color: #573a1e; margin-top: 20px; margin-bottom: 2px; }
+    .hub { background-color: #c9daf8; color: #573a1e; margin-top: 100px; }
+    .copy-btn { background-color: #d9d2e9; color: #573a1e; font-size: 14px; font-weight: bold; padding: 10px; margin: 2px 0; border: 2px solid #000; border-radius: 8px; cursor: pointer; width: 100%; box-sizing: border-box; }
+    .copy-btn:active { transform: scale(0.98); }
+    .copy-btn.copied { background-color: #a8c7a8; }
+    
+    .subtext { display: block; font-size: 12px; font-weight: normal; opacity: 0.8; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>View Mode Portal</h2>
+    <a href="https://docs.google.com/spreadsheets/d/1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk/preview" class="btn preview">Preview Mode <span class="subtext">(works on most devices)</span></a>
+    <button class="copy-btn" data-label="Copy Preview Mode URL" onclick="copyUrl(this, previewUrl)">Copy Preview Mode URL</button>
+    <a href="https://docs.google.com/spreadsheets/d/1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk/edit?gid=2067557144#gid=2067557144" class="btn edit">Edit Mode <span class="subtext">(annoying banner at top)</span></a>
+    <button class="copy-btn" data-label="Copy Edit Mode URL" onclick="copyUrl(this, editUrl)">Copy Edit Mode URL</button>
+    <a href="https://ccttcratings.github.io/portalhub/" class="btn hub">Portal Hub<span class="subtext">(hub of redundant portals)</span></a>
+  </div>
+  <script>
+    const previewUrl = "https://docs.google.com/spreadsheets/d/1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk/preview";
+    const editUrl = "https://docs.google.com/spreadsheets/d/1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk/edit?gid=196901061#gid=196901061";
+    function copyUrl(btn, url) {
+      navigator.clipboard.writeText(url).then(() => {
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = btn.getAttribute("data-label");
+          btn.classList.remove("copied");
+        }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

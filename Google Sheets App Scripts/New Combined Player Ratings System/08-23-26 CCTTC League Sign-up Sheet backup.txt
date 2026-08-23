@@ -294,48 +294,6 @@ function setupWeeklyDisplay() {
   refreshDisplayTab();
 }
 
-function installDisplayTrigger() {
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'setupWeeklyDisplay') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
-
-  ScriptApp.newTrigger('setupWeeklyDisplay')
-    .timeBased()
-    .everyWeeks(1)
-    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
-    .atHour(6)
-    .create();
-
-  Logger.log('Display trigger installed - will run every Sunday at 6:00 AM');
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Display trigger installed successfully!', 'Trigger Installed', 5
-  );
-}
-
-function installSaturdayEmailTrigger() {
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'sendSaturdayEmail') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
-
-  ScriptApp.newTrigger('sendSaturdayEmail')
-    .timeBased()
-    .everyWeeks(1)
-    .onWeekDay(ScriptApp.WeekDay.SATURDAY)
-    .atHour(6)
-    .create();
-
-  Logger.log('Saturday email trigger installed - will run every Saturday at 6:00 AM');
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Saturday email trigger installed successfully!', 'Trigger Installed', 5
-  );
-}
-
 function testSaturdayEmail() {
   sendSaturdayEmail();
 }

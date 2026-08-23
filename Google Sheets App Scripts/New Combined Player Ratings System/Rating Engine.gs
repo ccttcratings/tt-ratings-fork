@@ -353,11 +353,11 @@ function runEngineCore(sheet, sheetName) {
     var bg = range.getBackgrounds();
     for (var j = 0; j < values.length; j++) {
       values[j][1] = '';            // clear stale ELO change first
-      // Clear any stale winner highlight on this row's name cells and any stale
-      // typo flag on column J; a row with no winner / no typo this run must not
-      // stay highlighted.
+      // Clear any stale winner highlight on this row's name cells (I and K)
+      // and any stale typo flag on column J; a row with no winner / no typo
+      // this run must not stay highlighted. Preserve column J's template
+      // background (#c9daf8) by NOT clearing index 1.
       bg[j][0] = null;
-      bg[j][1] = null;
       bg[j][2] = null;
       var rowHasScores = values[j].length > 4 &&
         !isNaN(parseFloat(values[j][3])) && !isNaN(parseFloat(values[j][4]));

@@ -1083,8 +1083,10 @@ class GoogleSheet():
                                 # with no winner / no typo this run must not stay highlighted.
                                 # The green/red request below (if any) is appended after these
                                 # clears, so it wins for the actual winner / typo flag.
+                                # Preserve column J's template background (#c9daf8) by NOT
+                                # clearing column J (index 9).
                                 if sheet_id is not None:
-                                    for clear_col in (8, 9, 10):
+                                    for clear_col in (8, 10):
                                         format_requests.append({
                                             'repeatCell': {
                                                 'range': {
