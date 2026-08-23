@@ -31,6 +31,15 @@ for _m_i, _m_name in enumerate(['january', 'february', 'march', 'april', 'may', 
     _MONTH_NUM[_m_name] = _m_i
     _MONTH_NUM[_m_name[:3]] = _m_i
 
+def format_date_display(date_str):
+    """Convert mm-dd-YYYY to 'Aug 22, 2026' format for sheet display."""
+    try:
+        dt = datetime.strptime(date_str, '%m-%d-%Y')
+        return dt.strftime('%b %d, %Y')
+    except (ValueError, TypeError):
+        return date_str
+
+
 def parse_flexible_date(value):
     """Parse a date from a datetime, a Sheets date serial, or a flexible string
     (MM-DD-YYYY, M/D/YY, YYYY-MM-DD, "Apr 4, 26", "4 Apr 2026", ...). Returns a
@@ -1198,7 +1207,7 @@ class GoogleSheet():
 
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE).execute()
             self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_HEADERS_RANGE,
-                                       valueInputOption='RAW', body={'values': [[f'{self.date_str}']]}).execute()
+                                       valueInputOption='RAW', body={'values': [[format_date_display(self.date_str)]]}).execute()
             self.sheet.values().clear(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_RANGE).execute()
             self.sheet.values().update(spreadsheetId=self.SPREADSHEET_ID, range=self.RATINGS_RANGE,
                                        valueInputOption='RAW', body={'values': all_player_ratings}).execute()
@@ -1978,7 +1987,7 @@ def update_database_from_sheet(date_str, google_cred, active_days, execute, prin
         all_player_ratings = []
         for i, (name, (rating, _)) in enumerate(sorted_players):
             if name in rating_increased or name in rating_decreased:
-                d = date_str
+                d = format_date_display(date_str)
             else:
                 d = existing_dates.get(name, '')
             all_player_ratings.append([i + 1, name, rating, d])
@@ -2004,7 +2013,7 @@ def update_database_from_sheet(date_str, google_cred, active_days, execute, prin
             spreadsheetId=google_sheet.SPREADSHEET_ID,
             range=google_sheet.RATINGS_HEADERS_RANGE,
             valueInputOption='RAW',
-            body={'values': [[f'{date_str}']]}
+            body={'values': [[format_date_display(date_str)]]}
         ).execute()
 
         # Refresh the Ratings History tab (today's column from the sheet ratings)
