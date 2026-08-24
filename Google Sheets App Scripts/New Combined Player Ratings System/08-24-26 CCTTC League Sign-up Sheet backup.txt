@@ -86,24 +86,24 @@ function sendSaturdayEmail() {
     emailBody += `<h2>Saturday Table Tennis Sign-ups for ${sheetName}</h2>`;
     emailBody += '<h3>Players Planning to Attend:</h3>';
     emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
-    emailBody += '<tr><th style="background-color: #b6d7a8; padding: 8px;"></th><th style="background-color: #b6d7a8; padding: 8px;">Names</th><th style="background-color: #b6d7a8; padding: 8px;">Ratings</th><th style="background-color: #b6d7a8; padding: 8px; text-align: center;">Responses</th></tr>';
+    emailBody += '<tr><th style="background-color: #b6d7a8; padding: 8px;"></th><th style="background-color: #b6d7a8; padding: 8px; text-align: left;">Names</th><th style="background-color: #b6d7a8; padding: 8px;">Ratings</th><th style="background-color: #b6d7a8; padding: 8px; text-align: center;">Responses</th></tr>';
     
     // Loop 1: YES Players (Response centered)
     for (let i = 0; i < yesPlayers.length; i++) {
       const player = yesPlayers[i];
-      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td></tr>`;
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px; text-align: right;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td></tr>`;
     }
 
     emailBody += '</table>';
     emailBody += '<hr style="border: 2px solid black; margin: 20px 0;">';
     emailBody += '<h3>Other Responses:</h3>';
     emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
-    emailBody += '<tr><th style="background-color: #FFA5A5; padding: 8px;"></th><th style="background-color: #FFA5A5; padding: 8px;">Names</th><th style="background-color: #FFA5A5; padding: 8px;">Ratings</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Responses</th></tr>';
+    emailBody += '<tr><th style="background-color: #FFA5A5; padding: 8px;"></th><th style="background-color: #FFA5A5; padding: 8px; text-align: left;">Names</th><th style="background-color: #FFA5A5; padding: 8px;">Ratings</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Responses</th></tr>';
 
     // Loop 2: OTHER Players (Response centered)
     for (let i = 0; i < otherPlayers.length; i++) {
       const player = otherPlayers[i];
-      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td></tr>`;
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px; text-align: right;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td></tr>`;
     }
 
     emailBody += '</table>';
