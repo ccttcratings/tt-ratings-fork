@@ -303,7 +303,14 @@
         });
       }
 
-      var ctx = document.getElementById('chart').getContext('2d');
+      // Completely replace canvas to ensure clean slate
+      var chartWrap = document.getElementById('chartWrap');
+      var oldCanvas = document.getElementById('chart');
+      var newCanvas = document.createElement('canvas');
+      newCanvas.id = 'chart';
+      oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+
+      var ctx = newCanvas.getContext('2d');
       state.chart = new Chart(ctx, {
         type: 'line',
         data: { datasets: datasets },
@@ -378,7 +385,7 @@
           }
         }
       });
-      document.getElementById('chart').addEventListener('click', onCanvasClick);
+      newCanvas.addEventListener('click', onCanvasClick);
     }
 
     function distToSegmentSq(px, py, ax, ay, bx, by) {
