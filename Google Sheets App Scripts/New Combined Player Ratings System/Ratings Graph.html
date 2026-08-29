@@ -465,33 +465,14 @@
       var scale = state.chart.options.scales.y;
       if (any && isFinite(minY) && isFinite(maxY)) {
         var pad = Math.max(10, (maxY - minY) * 0.08);
-        var vmin = Math.floor((minY - pad) / 10) * 10;
-        var vmax = Math.ceil((maxY + pad) / 10) * 10;
-        scale.min = vmin;
-        scale.max = vmax;
-        // Generate ticks
-        var span = vmax - vmin;
-        var step;
-        if (span <= 0) step = 1;
-        else {
-          var raw = span / 5;
-          var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
-          var norm = raw / mag;
-          step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
-        }
-        scale.ticks = [];
-        for (var v = vmin; v <= vmax + 1e-9; v += step) {
-          scale.ticks.push({ value: v });
-        }
+        scale.min = Math.floor((minY - pad) / 10) * 10;
+        scale.max = Math.ceil((maxY + pad) / 10) * 10;
       } else if (hasVisibleData) {
         scale.min = 0;
         scale.max = 2000;
-        scale.ticks = [];
-        for (var v = 0; v <= 2000; v += 200) scale.ticks.push({ value: v });
       } else {
         scale.min = undefined;
         scale.max = undefined;
-        scale.ticks = [];
       }
     }
 
