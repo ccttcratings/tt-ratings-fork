@@ -9,10 +9,28 @@ function sendSaturdayEmail() {
     const ratingsSS = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
     const ratingsSheet = ratingsSS.getSheetByName('Ratings');
 
-    if (!ratingsSheet) {
-      sendErrorEmail('Ratings sheet not found in main spreadsheet — no league this week?');
-      return;
+    // Build email lookup maps from Ratings sheet if it exists
+    const emailToRating = {};
+    const emailToDBName = {};
+
+    function addEmailLookup(emailAddr, rating, dbName) {
+      if (emailAddr && String(emailAddr).trim() !== '') {
+        const emailKey = String(emailAddr).trim().toLowerCase();
+        if (!emailToRating[emailKey]) {
+          emailToRating[emailKey] = rating || 0;
+          emailToDBName[emailKey] = dbName || 'Unknown';
+        }
+      }
     }
+
+    if (ratingsSheet) {
+      const ratingsData = ratingsSheet.getRange('A2:DC').getValues();
+      for (let i = 0; i < ratingsData.length; i++) {
+        addEmailLookup(ratingsData[i][103], ratingsData[i][2], ratingsData[i][1]);
+        addEmailLookup(ratingsData[i][106], ratingsData[i][2], ratingsData[i][1]);
+      }
+    }
+    // If Ratings sheet doesn't exist, emailToRating/emailToDBName stay empty → ratings default to 0
 
     const today = new Date();
     const sheetName = formatDateForSheet(today);
@@ -32,25 +50,6 @@ function sendSaturdayEmail() {
     if (emailColIndex === -1 || playingColIndex === -1 || nameColIndex === -1) {
       sendErrorEmail(`Could not find required columns in sheet "Raw ${sheetName}". Email col: ${emailColIndex}, Playing col: ${playingColIndex}, Name col: ${nameColIndex}`);
       return;
-    }
-
-    const ratingsData = ratingsSheet.getRange('A2:DC').getValues();
-    const emailToRating = {};
-    const emailToDBName = {};
-
-    function addEmailLookup(emailAddr, rating, dbName) {
-      if (emailAddr && String(emailAddr).trim() !== '') {
-        const emailKey = String(emailAddr).trim().toLowerCase();
-        if (!emailToRating[emailKey]) {
-          emailToRating[emailKey] = rating || 0;
-          emailToDBName[emailKey] = dbName || 'Unknown';
-        }
-      }
-    }
-
-    for (let i = 0; i < ratingsData.length; i++) {
-      addEmailLookup(ratingsData[i][103], ratingsData[i][2], ratingsData[i][1]);
-      addEmailLookup(ratingsData[i][106], ratingsData[i][2], ratingsData[i][1]);
     }
 
     const yesPlayers = [];
