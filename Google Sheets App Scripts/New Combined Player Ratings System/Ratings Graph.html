@@ -466,15 +466,22 @@
       var minY = Infinity;
       var maxY = -Infinity;
       var any = false;
+      var hasVisibleData = false;
       for (var i = 0; i < state.chart.data.datasets.length; i++) {
         var ds = state.chart.data.datasets[i];
         if (ds.hidden) continue;
+        if (!ds.data || ds.data.length === 0) {
+          // Visible dataset with no data points - skip for axis calculation
+          // but mark that we have a visible dataset so we don't auto-scale to nothing
+          continue;
+        }
         for (var j = 0; j < ds.data.length; j++) {
           var v = ds.data[j].y;
           if (v !== null && isFinite(v)) {
             if (v < minY) minY = v;
             if (v > maxY) maxY = v;
             any = true;
+            hasVisibleData = true;
           }
         }
       }
@@ -483,6 +490,10 @@
         var pad = Math.max(10, (maxY - minY) * 0.08);
         scale.min = Math.floor((minY - pad) / 10) * 10;
         scale.max = Math.ceil((maxY + pad) / 10) * 10;
+      } else if (hasVisibleData) {
+        // Visible datasets exist but all have no valid data points - provide default bounds
+        scale.min = 0;
+        scale.max = 2000;
       } else {
         scale.min = undefined;
         scale.max = undefined;
