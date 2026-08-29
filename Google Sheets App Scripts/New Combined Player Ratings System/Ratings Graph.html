@@ -505,7 +505,16 @@
         var ds = state.chart.data.datasets[i];
         if (ds.label === name) ds.hidden = !!state.hidden[name];
       }
-      cropAxis();
+      // If we're going from all-hidden to one-visible, force a full reset
+      var wasAllHidden = !state.chart.data.datasets.some(function (ds) { return !ds.hidden; });
+      var nowOneVisible = !state.hidden[name];
+      if (wasAllHidden && nowOneVisible) {
+        // Force a full chart reset to clear any internal Chart.js state issues
+        state.chart.destroy();
+        buildChart();
+      } else {
+        cropAxis();
+      }
       try { state.chart.update(); } catch (e) { console.error('Chart update failed:', e); }
       renderNames();
     }
