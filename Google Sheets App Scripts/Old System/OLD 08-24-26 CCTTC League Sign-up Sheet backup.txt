@@ -10,7 +10,8 @@ function sendSaturdayEmail() {
     const ratingsSheet = ratingsSS.getSheetByName('Ratings');
 
     if (!ratingsSheet) {
-      throw new Error('Ratings sheet not found in main spreadsheet');
+      sendErrorEmail('Ratings sheet not found in main spreadsheet — no league this week?');
+      return;
     }
 
     const today = new Date();
