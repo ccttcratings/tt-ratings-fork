@@ -969,7 +969,7 @@ function findWinnersForDate(dateString) {
  */
 
 var RATINGS_SHEET_NAME = '🔵 Ratings';
-var RATINGS_HISTORY_SHEET_NAME = 'Rating History';
+var RATINGS_HISTORY_SHEET_NAME = 'Ratings History';
 var RATINGS_HISTORY_HEADER_ROW = 1;
 var RATINGS_HISTORY_DATA_START_ROW = 2;
 
@@ -2022,7 +2022,7 @@ function isSameDay(a, b) {
  */
 
 var ALIGN_RATINGS_SHEET = '🔵 Ratings';
-var ALIGN_GRAPH_SHEET = 'Rating History';
+var ALIGN_GRAPH_SHEET = 'Ratings History';
 var ALIGN_GRAPH_HEADER_ROW = 1;
 var ALIGN_LOG_SHEET = 'Alignment Log';
 var ALIGN_DEFAULT_STALENESS_YEARS = 2;
@@ -2506,7 +2506,7 @@ var RATINGS_GRAPH_SPREADSHEETS = {
 };
 var RATINGS_GRAPH_DEFAULT = 'combined';
 var RATINGS_GRAPH_ROSTER_SHEET = '🔵 Ratings';
-var RATINGS_GRAPH_HISTORY_SHEET = 'Rating History';
+var RATINGS_GRAPH_HISTORY_SHEET = 'Ratings History';
 
 // Switching levers for how often getGraphData re-reads the spreadsheet (data
 // changes roughly once a week, so a fresh build is needed ~weekly, not on

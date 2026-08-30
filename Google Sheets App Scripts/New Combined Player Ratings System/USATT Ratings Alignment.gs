@@ -37,7 +37,7 @@
  */
 
 var ALIGN_RATINGS_SHEET = '🔵 Ratings';
-var ALIGN_GRAPH_SHEET = 'Rating History';
+var ALIGN_GRAPH_SHEET = 'Ratings History';
 var ALIGN_GRAPH_HEADER_ROW = 1;
 var ALIGN_LOG_SHEET = 'Alignment Log';
 var ALIGN_DEFAULT_STALENESS_YEARS = 2;

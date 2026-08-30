@@ -38,7 +38,7 @@ var RATINGS_GRAPH_SPREADSHEETS = {
 };
 var RATINGS_GRAPH_DEFAULT = 'combined';
 var RATINGS_GRAPH_ROSTER_SHEET = '🔵 Ratings';
-var RATINGS_GRAPH_HISTORY_SHEET = 'Rating History';
+var RATINGS_GRAPH_HISTORY_SHEET = 'Ratings History';
 
 // Switching levers for how often getGraphData re-reads the spreadsheet (data
 // changes roughly once a week, so a fresh build is needed ~weekly, not on
