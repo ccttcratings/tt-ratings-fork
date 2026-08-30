@@ -156,9 +156,38 @@ function newScoreSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var template_sheet = ss.getSheetByName("Template");
   var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
+
+  // Find the most recent score sheet to determine the next emoji prefix.
+  // Score sheets follow the pattern "🟢 MM-dd-yyyy" or "🟡 MM-dd-yyyy".
+  // Alternate between 🟢 and 🟡 for each new sheet.
+  var GREEN = '🟢 ';
+  var YELLOW = '🟡 ';
+  var nextEmoji = GREEN; // default to green if no previous sheet found
+  var sheets = ss.getSheets();
+  var latestDate = null;
+  var latestEmoji = null;
+  var datePattern = /^(🟢|🟡)\s+(\d{2}-\d{2}-\d{4})$/;
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName();
+    var m = name.match(datePattern);
+    if (m) {
+      var d = parseDateValue(m[2]);
+      if (d && (!latestDate || d.getTime() > latestDate.getTime())) {
+        latestDate = d;
+        latestEmoji = m[1];
+      }
+    }
+  }
+  if (latestEmoji === GREEN) {
+    nextEmoji = YELLOW;
+  } else if (latestEmoji === YELLOW) {
+    nextEmoji = GREEN;
+  }
+
+  var displayName = nextEmoji + date_str;
   var sysRulesSheet = ss.getSheetByName("System/Rules");
   var insertIndex = sysRulesSheet ? sysRulesSheet.getIndex() : ss.getSheets().length;
-  var sheet = ss.insertSheet(date_str, insertIndex, {template: template_sheet});
+  var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
   sheet.showSheet();
   ["E3:E8", "E20:E25", "E37:E42"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
