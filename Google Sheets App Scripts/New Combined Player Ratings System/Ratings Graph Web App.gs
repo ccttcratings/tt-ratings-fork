@@ -139,6 +139,7 @@ function refreshGraphPayload(id) {
   // ('combined' / 'ccttc', used for manual refresh / puppeteer tests).
   // Resolve to the real ID so openById() and the cache/property keys line up
   // with getGraphData().
+  id = id || RATINGS_GRAPH_DEFAULT;
   var realId = RATINGS_GRAPH_SPREADSHEETS[id] || id;
   var data = buildGraphData(realId);
   var json = JSON.stringify(data);
