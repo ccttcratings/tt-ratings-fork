@@ -120,6 +120,10 @@ function hideInactivePlayers() {
 
 function showInactivePlayers() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Ratings");
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Could not find the "Ratings" sheet. Please check the sheet name.');
+    return;
+  }
   var playerNames = sheet.getRange("B2:B").getValues();
   var rowCount = 0;
   for (var i = 0; i < playerNames.length; i++) {
