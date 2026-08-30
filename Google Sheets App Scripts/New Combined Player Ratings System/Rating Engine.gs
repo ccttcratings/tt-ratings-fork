@@ -24,7 +24,7 @@
  * Series flatline (carry their last rating forward) during inactive periods.
  */
 
-var RATINGS_SHEET_NAME = 'CCTTC Player Ratings';
+var RATINGS_SHEET_NAME = '🔵 Ratings';
 var RATINGS_HISTORY_SHEET_NAME = 'Rating History';
 var RATINGS_HISTORY_HEADER_ROW = 1;
 var RATINGS_HISTORY_DATA_START_ROW = 2;

@@ -30,7 +30,7 @@ function getFadeColors(daysInactive) {
 
 function hideInactivePlayers() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName("CCTTC Player Ratings");
+  var sheet = ss.getSheetByName("🔵 Ratings");
   var playerNames = sheet.getRange("B2:B").getValues();
 
   // Column D = the last date a player's rating changed, maintained by the
@@ -119,9 +119,9 @@ function hideInactivePlayers() {
 }
 
 function showInactivePlayers() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CCTTC Player Ratings");
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("🔵 Ratings");
   if (!sheet) {
-    SpreadsheetApp.getUi().alert('Could not find the "CCTTC Player Ratings" sheet. Please check the sheet name.');
+    SpreadsheetApp.getUi().alert('Could not find the "🔵 Ratings" sheet. Please check the sheet name.');
     return;
   }
   var playerNames = sheet.getRange("B2:B").getValues();
@@ -445,7 +445,7 @@ function findWinners() {
     var sheet = ss.getActiveSheet();
     var sheetName = sheet.getName();
 
-    if (sheetName === "CCTTC Player Ratings" || sheetName === "Template") {
+    if (sheetName === "🔵 Ratings" || sheetName === "Template") {
       var sheets = ss.getSheets();
       var datePattern = /^\d{2}-\d{2}-\d{4}$/;
       var dateSheets = [];

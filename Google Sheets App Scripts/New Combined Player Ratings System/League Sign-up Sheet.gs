@@ -7,7 +7,7 @@ function sendSaturdayEmail() {
   try {
     const signUpSS = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
     const ratingsSS = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
-    const ratingsSheet = ratingsSS.getSheetByName('CCTTC Player Ratings');
+    const ratingsSheet = ratingsSS.getSheetByName('🔵 Ratings');
 
     // Build email lookup maps from Ratings sheet if it exists
     const emailToRating = {};
