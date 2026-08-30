@@ -234,7 +234,7 @@
           var px0 = xs.getPixelForValue(ticks[i].value);
           var px1 = i + 1 < ticks.length
             ? xs.getPixelForValue(ticks[i + 1].value)
-            : px0 + (px0 - xs.getPixelForValue(ticks[i - 1].value));
+            : (i > 0 ? px0 + (px0 - xs.getPixelForValue(ticks[i - 1].value)) : px0 + 60);
           var mid = (px0 + px1) / 2;
           if (mid < area.left || mid > area.right) continue;
           if (px1 - px0 < 45) continue;
@@ -444,55 +444,61 @@
     }
 
     function cropAxis() {
+      var DEFAULT_MIN = 800;
+      var DEFAULT_MAX = 1200;
       var minY = Infinity;
       var maxY = -Infinity;
       var any = false;
-      var hasVisibleData = false;
-      for (var i = 0; i < state.chart.data.datasets.length; i++) {
-        var ds = state.chart.data.datasets[i];
-        if (ds.hidden) continue;
-        if (!ds.data || ds.data.length === 0) continue;
-        hasVisibleData = true;
-        for (var j = 0; j < ds.data.length; j++) {
-          var v = ds.data[j].y;
-          if (v !== null && isFinite(v)) {
-            if (v < minY) minY = v;
-            if (v > maxY) maxY = v;
-            any = true;
+      var scale = state.chart.options.scales.y;
+      try {
+        for (var i = 0; i < state.chart.data.datasets.length; i++) {
+          var ds = state.chart.data.datasets[i];
+          if (ds.hidden) continue;
+          if (!ds.data || ds.data.length === 0) continue;
+          for (var j = 0; j < ds.data.length; j++) {
+            var pt = ds.data[j];
+            if (!pt) continue;
+            var v = pt.y;
+            if (v !== null && v !== undefined && isFinite(v)) {
+              if (v < minY) minY = v;
+              if (v > maxY) maxY = v;
+              any = true;
+            }
           }
         }
-      }
-      var scale = state.chart.options.scales.y;
-      if (any && isFinite(minY) && isFinite(maxY)) {
-        var pad = Math.max(10, (maxY - minY) * 0.08);
-        scale.min = Math.floor((minY - pad) / 10) * 10;
-        scale.max = Math.ceil((maxY + pad) / 10) * 10;
-      } else if (hasVisibleData) {
-        scale.min = 0;
-        scale.max = 2000;
-      } else {
-        scale.min = undefined;
-        scale.max = undefined;
+        if (any && isFinite(minY) && isFinite(maxY)) {
+          var pad = Math.max(10, (maxY - minY) * 0.08);
+          scale.min = Math.floor((minY - pad) / 10) * 10;
+          scale.max = Math.ceil((maxY + pad) / 10) * 10;
+        } else {
+          scale.min = DEFAULT_MIN;
+          scale.max = DEFAULT_MAX;
+        }
+      } catch (e) {
+        console.error('cropAxis error:', e);
+        scale.min = DEFAULT_MIN;
+        scale.max = DEFAULT_MAX;
       }
     }
 
     function togglePlayer(name) {
       state.active = null;
+      // Check BEFORE modifying: were ALL datasets hidden before this click?
+      var wasAllHidden = !state.chart.data.datasets.some(function (ds) { return !ds.hidden; });
       state.hidden[name] = !state.hidden[name];
       saveHidden();
       for (var i = 0; i < state.chart.data.datasets.length; i++) {
         var ds = state.chart.data.datasets[i];
         if (ds.label === name) ds.hidden = !!state.hidden[name];
       }
-      // If we're going from all-hidden to one-visible, force a full reset
-      var wasAllHidden = !state.chart.data.datasets.some(function (ds) { return !ds.hidden; });
       var nowOneVisible = !state.hidden[name];
       if (wasAllHidden && nowOneVisible) {
-        // Force a full chart reset to clear any internal Chart.js state issues
-        state.chart.destroy();
+        // Full rebuild: destroy old chart, create new one on same canvas.
+        // Chart.js can't reliably recover from all-hidden auto-scale state.
+        try { state.chart.destroy(); } catch (e) { /* ignore */ }
         buildChart();
       } else {
-        cropAxis();
+        try { cropAxis(); } catch (e) { console.error('cropAxis failed:', e); }
       }
       try { state.chart.update(); } catch (e) { console.error('Chart update failed:', e); }
       renderNames();
@@ -508,7 +514,7 @@
       for (var j = 0; j < state.chart.data.datasets.length; j++) {
         state.chart.data.datasets[j].hidden = !!state.hidden[state.chart.data.datasets[j].label];
       }
-      cropAxis();
+      try { cropAxis(); } catch (e) { console.error('cropAxis failed:', e); }
       try { state.chart.update(); } catch (e) { console.error('Chart update failed:', e); }
       renderNames();
     }
@@ -531,7 +537,7 @@
       for (var j = 0; j < state.chart.data.datasets.length; j++) {
         state.chart.data.datasets[j].hidden = !!state.hidden[state.chart.data.datasets[j].label];
       }
-      cropAxis();
+      try { cropAxis(); } catch (e) { console.error('cropAxis failed:', e); }
       try { state.chart.update(); } catch (e) { console.error('Chart update failed:', e); }
       renderNames();
     }
@@ -574,6 +580,12 @@
       state.lastDate = data.lastDate || {};
       state.fade = data.fade || {};
       state.series = data.series || {};
+      // Debug: log LH JD's data to console for troubleshooting
+      if (state.series['LH JD']) {
+        console.log('LH JD series data:', JSON.stringify(state.series['LH JD']));
+      } else {
+        console.log('LH JD not found in series. Roster:', data.roster);
+      }
       // Default to the same view the Hide Inactive button produces: load with
       // only the active players' lines showing. If the visitor already has a
       // stored choice (e.g. Show All), that choice is honored instead. Done
@@ -590,7 +602,7 @@
         }
       }
       buildChart();
-      cropAxis();
+      try { cropAxis(); } catch (e) { console.error('cropAxis failed:', e); }
       try { state.chart.update(); } catch (e) { console.error('Chart update failed:', e); }
       renderNames();
       document.getElementById('showAll').addEventListener('click', function () { setAll(true); });
