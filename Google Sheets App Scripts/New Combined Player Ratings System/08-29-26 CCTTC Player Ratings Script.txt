@@ -130,7 +130,7 @@ function getFadeColors(daysInactive) {
 
 function hideInactivePlayers() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName("Ratings");
+  var sheet = ss.getSheetByName("CCTTC Player Ratings");
   var playerNames = sheet.getRange("B2:B").getValues();
 
   // Column D = the last date a player's rating changed, maintained by the
@@ -219,9 +219,9 @@ function hideInactivePlayers() {
 }
 
 function showInactivePlayers() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Ratings");
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CCTTC Player Ratings");
   if (!sheet) {
-    SpreadsheetApp.getUi().alert('Could not find the "Ratings" sheet. Please check the sheet name.');
+    SpreadsheetApp.getUi().alert('Could not find the "CCTTC Player Ratings" sheet. Please check the sheet name.');
     return;
   }
   var playerNames = sheet.getRange("B2:B").getValues();
@@ -545,7 +545,7 @@ function findWinners() {
     var sheet = ss.getActiveSheet();
     var sheetName = sheet.getName();
 
-    if (sheetName === "Ratings" || sheetName === "Template") {
+    if (sheetName === "CCTTC Player Ratings" || sheetName === "Template") {
       var sheets = ss.getSheets();
       var datePattern = /^\d{2}-\d{2}-\d{4}$/;
       var dateSheets = [];
@@ -936,7 +936,7 @@ function findWinnersForDate(dateString) {
  * Series flatline (carry their last rating forward) during inactive periods.
  */
 
-var RATINGS_SHEET_NAME = 'Ratings';
+var RATINGS_SHEET_NAME = 'CCTTC Player Ratings';
 var RATINGS_HISTORY_SHEET_NAME = 'Rating History';
 var RATINGS_HISTORY_HEADER_ROW = 1;
 var RATINGS_HISTORY_DATA_START_ROW = 2;
@@ -1989,7 +1989,7 @@ function isSameDay(a, b) {
  * deleted - it stays in the sheet but turns RED. Valid ratings are GREEN.
  */
 
-var ALIGN_RATINGS_SHEET = 'Ratings';
+var ALIGN_RATINGS_SHEET = 'CCTTC Player Ratings';
 var ALIGN_GRAPH_SHEET = 'Rating History';
 var ALIGN_GRAPH_HEADER_ROW = 1;
 var ALIGN_LOG_SHEET = 'Alignment Log';
@@ -2473,7 +2473,7 @@ var RATINGS_GRAPH_SPREADSHEETS = {
   ccttc: '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg'
 };
 var RATINGS_GRAPH_DEFAULT = 'combined';
-var RATINGS_GRAPH_ROSTER_SHEET = 'Ratings';
+var RATINGS_GRAPH_ROSTER_SHEET = 'CCTTC Player Ratings';
 var RATINGS_GRAPH_HISTORY_SHEET = 'Rating History';
 
 // Switching levers for how often getGraphData re-reads the spreadsheet (data

@@ -36,7 +36,7 @@
  * deleted - it stays in the sheet but turns RED. Valid ratings are GREEN.
  */
 
-var ALIGN_RATINGS_SHEET = 'Ratings';
+var ALIGN_RATINGS_SHEET = 'CCTTC Player Ratings';
 var ALIGN_GRAPH_SHEET = 'Rating History';
 var ALIGN_GRAPH_HEADER_ROW = 1;
 var ALIGN_LOG_SHEET = 'Alignment Log';

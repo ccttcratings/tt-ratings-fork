@@ -78,7 +78,7 @@ function sendSaturdayEmail() {
 
     const signUpSS = SpreadsheetApp.openById(responseSpreadsheetId);
     const ratingsSS = SpreadsheetApp.openById(mainSpreadsheetId);
-    const ratingsSheet = ratingsSS.getSheetByName('Ratings');
+    const ratingsSheet = ratingsSS.getSheetByName('CCTTC Player Ratings');
 
     if (!ratingsSheet) {
       throw new Error('Ratings sheet not found in main spreadsheet');

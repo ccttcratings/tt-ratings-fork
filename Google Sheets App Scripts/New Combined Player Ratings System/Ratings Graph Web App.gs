@@ -37,7 +37,7 @@ var RATINGS_GRAPH_SPREADSHEETS = {
   ccttc: '1IYGaCxJjT8H2oTvIdm423oCuSsRGHjWGnTW7dD_7kxg'
 };
 var RATINGS_GRAPH_DEFAULT = 'combined';
-var RATINGS_GRAPH_ROSTER_SHEET = 'Ratings';
+var RATINGS_GRAPH_ROSTER_SHEET = 'CCTTC Player Ratings';
 var RATINGS_GRAPH_HISTORY_SHEET = 'Rating History';
 
 // Switching levers for how often getGraphData re-reads the spreadsheet (data
