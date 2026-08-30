@@ -262,10 +262,11 @@ function newScoreSheet() {
   // Alternate between 🟢 and 🟡 for each new sheet.
   var GREEN = '🟢 ';
   var YELLOW = '🟡 ';
-  var nextEmoji = GREEN; // default to green if no previous sheet found
+  var nextEmoji = GREEN;
   var sheets = ss.getSheets();
   var latestDate = null;
   var latestEmoji = null;
+  var latestIndex = -1;
   var datePattern = /^(🟢|🟡)\s+(\d{2}-\d{2}-\d{4})$/;
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
@@ -275,6 +276,7 @@ function newScoreSheet() {
       if (d && (!latestDate || d.getTime() > latestDate.getTime())) {
         latestDate = d;
         latestEmoji = m[1];
+        latestIndex = sheets[i].getIndex();
       }
     }
   }
@@ -285,8 +287,9 @@ function newScoreSheet() {
   }
 
   var displayName = nextEmoji + date_str;
-  var sysRulesSheet = ss.getSheetByName("System/Rules");
-  var insertIndex = sysRulesSheet ? sysRulesSheet.getIndex() : ss.getSheets().length;
+  // Insert to the left of the most recent score sheet.
+  // System/Rules stays to the left of all score sheets.
+  var insertIndex = latestIndex > 0 ? latestIndex : 1;
   var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
   sheet.showSheet();
   ["E3:E8", "E20:E25", "E37:E42"].forEach(function(r) {
