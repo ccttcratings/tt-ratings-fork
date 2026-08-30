@@ -95,7 +95,7 @@ function hideInactivePlayers() {
     fontColorsA[i][0] = colorPurple;
     fontColorsB[i][0] = colorPeach;
     fontColorsC[i][0] = colorBlue;
-    fontColorsD[i][0] = colorPurple;
+    fontColorsD[i][0] = colorBlue;
     fontColorsF[i][0] = colorBlue;
     fontColorsG[i][0] = colorPurple;
 
