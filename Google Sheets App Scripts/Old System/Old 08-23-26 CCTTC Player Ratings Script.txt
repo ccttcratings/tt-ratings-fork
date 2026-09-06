@@ -63,6 +63,9 @@ function hideInactivePlayers() {
   var fontColorsF = sheet.getRange("F2:F" + endRow).getFontColors();
   var fontColorsG = sheet.getRange("G2:G" + endRow).getFontColors();
 
+  // Format column D dates as "Sep 5, 2026"
+  sheet.getRange("D2:D" + endRow).setNumberFormat("MMM d, yyyy");
+
   var hideStart = -1;
   var hideCount = 0;
   for (var i = 0; i < playerCount; ++i) {
@@ -155,6 +158,7 @@ function newScoreSheet() {
   var sysRulesSheet = ss.getSheetByName("System/Rules");
   var insertIndex = sysRulesSheet ? sysRulesSheet.getIndex() : ss.getSheets().length;
   var sheet = ss.insertSheet(date_str, insertIndex, {template: template_sheet});
+  sheet.showSheet();
   ["E3:E8", "E20:E25", "E37:E42"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
   });
