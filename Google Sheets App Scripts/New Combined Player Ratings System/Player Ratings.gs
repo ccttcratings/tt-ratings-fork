@@ -189,10 +189,10 @@ function newScoreSheet() {
   var displayName = nextEmoji + date_str;
   // Insert to the left of the most recent score sheet.
   // System/Rules stays to the left of all score sheets.
-  var insertIndex = latestIndex > 0 ? latestIndex : 1;
+  var insertIndex = latestIndex > 1 ? latestIndex - 1 : 1;
   var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
   sheet.showSheet();
-  ["E3:E8", "E20:E25", "E37:E42"].forEach(function(r) {
+  ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
   });
 }
@@ -391,12 +391,12 @@ function isSuspectedTypo(row) {
 function scanForTypos(sheet) {
   // Scan the three league score ranges and return an array of typo records:
   // { league, rowIndex, baseIndex, p1, p2 }. baseIndex is the first score row
-  // of the league (3, 20, 37); the J cell to flag is baseIndex + rowIndex.
-  var ranges = ["I3:U17", "I20:U34", "I37:U51"];
+  // of the league (5, 26, 47); the J cell to flag is baseIndex + rowIndex.
+  var ranges = ["K5:W19", "K26:W40", "K47:W61"];
   var typos = [];
   for (var l = 0; l < 3; l++) {
     var values = sheet.getRange(ranges[l]).getValues();
-    var baseIndex = l * 17 + 3;
+    var baseIndex = l * 21 + 5;
     for (var j = 0; j < values.length; j++) {
       var row = values[j];
       if (!row[0] || !row[2]) continue;
@@ -414,7 +414,7 @@ function scanForTypos(sheet) {
 function flagTypoRows(sheet, typos) {
   for (var i = 0; i < typos.length; i++) {
     var t = typos[i];
-    sheet.getRange(t.baseIndex + t.rowIndex, 10).setBackground("#ff0000");
+    sheet.getRange(t.baseIndex + t.rowIndex, 15).setBackground("#ff0000");
   }
 }
 
@@ -426,7 +426,7 @@ function buildTypoDialogHtml(action, sheetName, typos) {
   }).join("");
   return '<!DOCTYPE html><html><head><base target="_top"></head><body>' +
     '<h3>Suspected score typos</h3>' +
-    '<p>The following rows are flagged red in column J. Fix the scores in the ' +
+    '<p>The following rows are flagged red in column O. Fix the scores in the ' +
     'sheet, then click <b>Re-check</b> to continue:</p>' +
     '<ul>' + list + '</ul>' +
     '<p><button id="recheck" onclick="recheck()">Re-check</button></p>' +
@@ -512,7 +512,7 @@ function findWinners() {
       return;
     }
 
-  var player_list = sheet.getRangeList(["C3:C8", "C20:C25", "C37:C42"]).getRanges();
+  var player_list = sheet.getRangeList(["E5:E10", "E26:E31", "E47:E52"]).getRanges();
   var league_results = {};
   for (var i = 0; i < 3; ++i) {
     var results = {};
@@ -529,7 +529,7 @@ function findWinners() {
     Logger.log("League " + (i+1) + " players: " + Object.keys(results).join(", "));
   }
 
-  var score_list = sheet.getRangeList(["I3:U17", "I20:U34", "I37:U51"]).getRanges();
+  var score_list = sheet.getRangeList(["K5:W19", "K26:W40", "K47:W61"]).getRanges();
 
   // Decide which rows are official round-robin matches for each league. Extra
   // matches (rematches, or matches against guests/players outside the league)
@@ -652,8 +652,8 @@ function findWinners() {
     }
   }
   for (var i = 0; i < 3; ++i) {
-    var base_index = i * 17 + 3;
-    sheet.getRange(base_index, 7, 15, 2).setBackground("#d9d9d9");
+    var base_index = i * 21 + 5;
+    sheet.getRange(base_index, 9, 15, 2).setBackground("#d9d9d9");
 
     var league_scores = score_list[i].getValues();
     for (var j = 0; j < 15; ++j) {
@@ -719,19 +719,19 @@ function findWinners() {
           ++league_results[i][p1_name].won_games;
           league_results[i][p1_name].won_against.push(p2_name);
         }
-        sheet.getRange(base_index + j, 7).setBackground("#ffa5a5");
-        Logger.log("  -> " + p1_name + " wins (highlighting G" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
+        sheet.getRange(base_index + j, 9).setBackground("#ffa5a5");
+        Logger.log("  -> " + p1_name + " wins (highlighting I" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
       } else if (winner_id == 2) {
         if (isOfficialMatch) {
           ++league_results[i][p2_name].won_games;
           league_results[i][p2_name].won_against.push(p1_name);
         }
-        sheet.getRange(base_index + j, 8).setBackground("#ffa5a5");
-        Logger.log("  -> " + p2_name + " wins (highlighting H" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
+        sheet.getRange(base_index + j, 10).setBackground("#ffa5a5");
+        Logger.log("  -> " + p2_name + " wins (highlighting J" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
       } else if (winner_id == 3) {
-        sheet.getRange(base_index + j, 7).setBackground("#b3a7d7");
-        sheet.getRange(base_index + j, 8).setBackground("#b3a7d7");
-        Logger.log("  -> Tie (highlighting G" + (base_index + j) + " and H" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
+        sheet.getRange(base_index + j, 9).setBackground("#b3a7d7");
+        sheet.getRange(base_index + j, 10).setBackground("#b3a7d7");
+        Logger.log("  -> Tie (highlighting I" + (base_index + j) + " and J" + (base_index + j) + ")" + (isOfficialMatch ? "" : " [extra match]"));
       } else {
         Logger.log("  -> No winner determined (winner_id = " + winner_id + ")");
       }
@@ -789,14 +789,14 @@ function findWinners() {
 
     var range, ties_range;
     if (i == 0) {
-      range = "D9";
-      ties_range = "D10:D11";
+      range = "F11";
+      ties_range = "F12:F13";
     } else if (i == 1) {
-      range = "D26";
-      ties_range = "D27:D28";
+      range = "F32";
+      ties_range = "F33:F34";
     } else {
-      range = "D43";
-      ties_range = "D44:D45";
+      range = "F53";
+      ties_range = "F54:F55";
     }
 
     Logger.log("League " + (i+1) + " winner: " + winner.name);

@@ -15,13 +15,19 @@
  *   G = USATT date earned, H = Show Inactive button, I-J blank,
  *   K = Hide Inactive button, CZ = primary emails, DC = secondary emails.
  *
- * Dated rating history lives on a hidden "Rating History" tab in long/tidy
+ * Dated rating history lives on a hidden "Ratings History" tab in long/tidy
  * format: header row 1 (A=Player, B=Date, C=Rating) and one data row per
  * player per session from row 2 onward. The "Ratings Graph" tab shows a
  * checkbox roster (A=Show/Hide checkbox, B=player name, C=color swatch) in a
  * left sidebar with the line chart anchored at column D; a hidden "Chart Data"
  * tab pivots the history into the wide date-by-player grid the chart reads.
  * Series flatline (carry their last rating forward) during inactive periods.
+ *
+ * Score sheet date-tab layout (per league, 15 rows):
+ *   K = P1 name, L = rating change, M = P2 name,
+ *   N-W = game score pairs (5 pairs).
+ *   I = highlight (red #ffa5a5, findWinners), J = highlight (red #ffa5a5, findWinners).
+ *   F = table winner / ties / point winner.
  */
 
 var RATINGS_SHEET_NAME = '🔵 Ratings';
@@ -29,11 +35,11 @@ var RATINGS_HISTORY_SHEET_NAME = 'Ratings History';
 var RATINGS_HISTORY_HEADER_ROW = 1;
 var RATINGS_HISTORY_DATA_START_ROW = 2;
 
-var SCORE_RANGES = ['I3:U17', 'I20:U34', 'I37:U51'];
-var PLAYER_RANGES = ['C3:C8', 'C20:C25', 'C37:C42'];
-var LEAGUE_RATING_RANGES = ['D3:F8', 'D20:F25', 'D37:F42'];
-var LEAGUE_START_ROWS = [3, 20, 37];
-var POINT_WINNER_RANGES = ['D12', 'D29', 'D46'];
+var SCORE_RANGES = ['K5:W19', 'K26:W40', 'K47:W61'];
+var PLAYER_RANGES = ['E5:E10', 'E26:E31', 'E47:E52'];
+var LEAGUE_RATING_RANGES = ['F5:H10', 'F26:H31', 'F47:H52'];
+var LEAGUE_START_ROWS = [5, 26, 47];
+var POINT_WINNER_RANGES = ['F14', 'F35', 'F56'];
 // Script Property key prefix (full key is this + spreadsheet id) holding the
 // pre-run snapshot that revertRatingsEngineRun() restores. A newer run
 // replaces the older snapshot, so revert always undoes the most recent run.
@@ -54,7 +60,7 @@ function getCurrentRatings(sheet) {
 }
 
 function parseScoresRow(row) {
-  // row is an array from I..U: [p1, '', p2, s1a, s1b, s2a, s2b, ...]
+  // row is an array from K..W: [p1, '', p2, s1a, s1b, s2a, s2b, ...]
   var p1Name = String(row[0]).trim();
   var p2Name = String(row[2]).trim();
   if (p1Name === '' || p2Name === '') return null;
@@ -224,7 +230,7 @@ function runEngineCore(sheet, sheetName) {
     }
   }
 
-  // Write per-league rating display on the date sheet (D/E/F columns).
+  // Write per-league rating display on the date sheet (F/G/H columns).
   for (var l = 0; l < 3; l++) {
     var playerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
     var leagueRows = [];
@@ -248,7 +254,7 @@ function runEngineCore(sheet, sheetName) {
       }
     }
     if (leagueRows.length > 0 && sheetId !== null) {
-      // Write D/E/F via the Sheets API updateCells with explicit stringValue,
+      // Write F/G/H via the Sheets API updateCells with explicit stringValue,
       // mirroring tt-ratings.py's set_new_ratings. Apps Script's setValues and
       // setRichTextValues both parse a leading '+' as a formula (writing
       // "=+22.50."); an explicit stringValue does not. The trailing '.' is
@@ -296,8 +302,8 @@ function runEngineCore(sheet, sheetName) {
               sheetId: sheetId,
               startRowIndex: startRow,
               endRowIndex: endRow,
-              startColumnIndex: 3, // D
-              endColumnIndex: 6    // G exclusive
+              startColumnIndex: 5, // F
+              endColumnIndex: 8    // H exclusive
             },
             rows: rowsData,
             fields: 'userEnteredValue,textFormatRuns,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment'
@@ -312,8 +318,8 @@ function runEngineCore(sheet, sheetName) {
     }
   }
 
-  // Write the highest point winner for each league to D12/D29/D46: the player
-  // in that league (column C) whose rating gain this run is the biggest.
+  // Write the highest point winner for each league to F14/F35/F56: the player
+  // in that league whose rating gain this run is the biggest.
   for (var l = 0; l < 3; l++) {
     var pwPlayerValues = sheet.getRange(PLAYER_RANGES[l]).getValues();
     var pwWinners = [];
@@ -342,21 +348,18 @@ function runEngineCore(sheet, sheetName) {
       ' (+' + pwMaxChange.toFixed(2) + ')');
   }
 
-  // Write ELO change into column J (index 1) of each score row and color the
-  // winner's name cell green (column I for a P1 win, column K for a P2 win).
-  // Suspected typos are caught by the gate before this loop runs. Only rows
-  // that actually carry game scores get a change; an empty row with the same
-  // player pair must NOT inherit another match's change.
+  // Write ELO change into column L (index 1) of each score row and color the
+  // winner's matchup name cell green (column K for a P1 win, column M for a P2
+  // win). Suspected typos are caught by the gate before this loop runs. Only
+  // rows that actually carry game scores get a change; an empty row with the
+  // same player pair must NOT inherit another match's change.
   for (var l = 0; l < 3; l++) {
     var range = sheet.getRange(SCORE_RANGES[l]);
     var values = range.getValues();
     var bg = range.getBackgrounds();
     for (var j = 0; j < values.length; j++) {
       values[j][1] = '';            // clear stale ELO change first
-      // Clear any stale winner highlight on this row's name cells (I and K)
-      // and any stale typo flag on column J; a row with no winner / no typo
-      // this run must not stay highlighted. Preserve column J's template
-      // background (#c9daf8) by NOT clearing index 1.
+      // Clear stale winner highlights on K (index 0) and M (index 2).
       bg[j][0] = null;
       bg[j][2] = null;
       var rowHasScores = values[j].length > 4 &&
@@ -366,9 +369,9 @@ function runEngineCore(sheet, sheetName) {
       if (!mc) continue;
       values[j][1] = round2(Math.abs(mc.p1Change)).toFixed(2);
       if (mc.p1Change > 0) {
-        bg[j][0] = '#c5eec5';       // P1 won -> highlight their name cell
+        bg[j][0] = '#c5eec5';       // P1 won -> highlight K
       } else if (mc.p2Change > 0) {
-        bg[j][2] = '#c5eec5';       // P2 won -> highlight their name cell
+        bg[j][2] = '#c5eec5';       // P2 won -> highlight M
       }
     }
     range.setValues(values);
@@ -840,8 +843,8 @@ function snapshotEngineRunState(ss, sheet, sheetName) {
     snap.pointWinners.push(sheet.getRange(POINT_WINNER_RANGES[l]).getValue());
   }
 
-  // The engine only mutates the J column and the I/J/K name-cell colors inside
-  // each score range, so those are all we snapshot (keeps the property small).
+  // The engine mutates the L column (rating change, index 1) and the K/M
+  // matchup-name highlight colors (indices 0 and 2). Snapshot all of them.
   snap.scoreJ = [];
   snap.scoreIKBg = [];
   for (var s = 0; s < 3; s++) {
@@ -937,8 +940,8 @@ function revertRatingsEngineRun() {
     ratingsSheet.getRange('DC2:DC' + (oldRows + 1)).setValues(snap.ratingsDC);
   }
 
-  // 2. Date sheet: restore D/E/F, point winners, the J column, and the winner
-  // name-cell colors exactly as they were before the run.
+  // 2. Date sheet: restore D/E/F, point winners, the L column, and the K/M
+  // matchup-name highlight colors exactly as they were before the run.
   for (var l = 0; l < 3; l++) {
     dateSheet.getRange(LEAGUE_RATING_RANGES[l]).setValues(deserializeGrid(snap.dateDEF[l]));
     dateSheet.getRange(POINT_WINNER_RANGES[l]).setValue(snap.pointWinners[l]);
