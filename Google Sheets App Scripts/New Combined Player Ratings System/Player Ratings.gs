@@ -181,6 +181,7 @@ function newScoreSheet() {
   var insertIndex = latestIndex > 1 ? latestIndex - 1 : 1;
   var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
   sheet.showSheet();
+  sheet.setTabColor(nextEmoji === GREEN ? '#00ff00' : '#f1c232');
   ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
   });
