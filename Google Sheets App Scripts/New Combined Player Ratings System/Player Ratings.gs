@@ -157,34 +157,23 @@ function newScoreSheet() {
   var template_sheet = ss.getSheetByName("Template");
   var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
 
-  // Find the most recent score sheet to determine the next emoji prefix.
+  // Count existing score sheets to determine next emoji.
   // Score sheets follow the pattern "🟢 MM-dd-yyyy" or "🟡 MM-dd-yyyy".
-  // Alternate between 🟢 and 🟡 for each new sheet.
+  // Alternate: 1st🟢, 2nd🟡, 3rd🟢, 4th🟡, etc.
   var GREEN = '🟢 ';
   var YELLOW = '🟡 ';
-  var nextEmoji = GREEN;
   var sheets = ss.getSheets();
-  var latestDate = null;
-  var latestEmoji = null;
+  var scoreCount = 0;
   var latestIndex = -1;
-  var datePattern = /^(🟢|🟡)\s+(\d{2}-\d{2}-\d{4})$/;
+  var datePattern = /^.{1,4}\s+(\d{2}-\d{2}-\d{4})$/;
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
-    var m = name.match(datePattern);
-    if (m) {
-      var d = parseDateValue(m[2]);
-      if (d && (!latestDate || d.getTime() > latestDate.getTime())) {
-        latestDate = d;
-        latestEmoji = m[1];
-        latestIndex = sheets[i].getIndex();
-      }
+    if (datePattern.test(name)) {
+      scoreCount++;
+      latestIndex = sheets[i].getIndex();
     }
   }
-  if (latestEmoji === GREEN) {
-    nextEmoji = YELLOW;
-  } else if (latestEmoji === YELLOW) {
-    nextEmoji = GREEN;
-  }
+  var nextEmoji = (scoreCount % 2 === 0) ? GREEN : YELLOW;
 
   var displayName = nextEmoji + date_str;
   // Insert to the left of the most recent score sheet.
