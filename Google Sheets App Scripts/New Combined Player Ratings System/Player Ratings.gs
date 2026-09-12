@@ -164,28 +164,36 @@ function newScoreSheet() {
   var GREEN = '🟢 ';
   var YELLOW = '🟡 ';
   var sheets = ss.getSheets();
-  var scoreCount = 0;
+  
+  // Find the most recent dated tab to determine next emoji color
+  var latestEmoji = null;
   var latestIndex = -1;
-  // FIXED: match emoji (2 chars) + single space + date
   var datePattern = /^..\s(\d{2}-\d{2}-\d{4})$/;
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
     if (datePattern.test(name)) {
-      scoreCount++;
-      latestIndex = sheets[i].getIndex();
+      var idx = sheets[i].getIndex();
+      if (idx > latestIndex) {
+        latestIndex = idx;
+        // Extract emoji from the most recent dated tab
+        var match = name.match(/^(..)\s/);
+        latestEmoji = match ? match[1] : null;
+      }
     }
   }
-  var nextEmoji = (scoreCount % 2 === 0) ? GREEN : YELLOW;
-
+  
+  // Determine next emoji: alternate from the most recent tab's emoji
+  var nextEmoji;
+  if (latestEmoji === '🟢 ') {
+    nextEmoji = '🟡 ';
+  } else if (latestEmoji === '🟡 ') {
+    nextEmoji = '🟢 ';
+  } else {
+    // Fallback: if no dated tabs exist, start with green
+    nextEmoji = '🟢 ';
+  }
+  
   var displayName = nextEmoji + date_str;
-  var insertIndex = latestIndex > 1 ? latestIndex - 1 : 1;
-  var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
-  sheet.showSheet();
-  sheet.setTabColor(nextEmoji === GREEN ? '#00ff00' : '#f1c232');
-  ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
-    sheet.getRange(r).setNumberFormat("@");
-  });
-}
 
 class Player {
   constructor(name) {
