@@ -165,19 +165,21 @@ function newScoreSheet() {
   var YELLOW = '🟡 ';
   var sheets = ss.getSheets();
   
-  // Find the most recent dated tab to determine next emoji color
+  // Find the most recent dated tab by parsing actual dates, not tab position
+  var latestDate = null;
   var latestEmoji = null;
-  var latestIndex = -1;
   var datePattern = /^..\s(\d{2}-\d{2}-\d{4})$/;
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
-    if (datePattern.test(name)) {
-      var idx = sheets[i].getIndex();
-      if (idx > latestIndex) {
-        latestIndex = idx;
-        // Extract emoji from the most recent dated tab
-        var match = name.match(/^(..)\s/);
-        latestEmoji = match ? match[1] : null;
+    var match = name.match(/^(..)\s(\d{2}-\d{2}-\d{4})$/);
+    if (match) {
+      var emoji = match[1];
+      var dateStr = match[2];
+      var parts = dateStr.split('-');
+      var date = new Date(parts[2], parts[0] - 1, parts[1]); // MM-dd-yyyy
+      if (!latestDate || date > latestDate) {
+        latestDate = date;
+        latestEmoji = match[1];
       }
     }
   }
@@ -192,8 +194,6 @@ function newScoreSheet() {
     // Fallback: if no dated tabs exist, start with green
     nextEmoji = '🟢 ';
   }
-  
-  var displayName = nextEmoji + date_str;
 
 class Player {
   constructor(name) {
