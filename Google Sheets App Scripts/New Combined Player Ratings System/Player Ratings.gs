@@ -155,17 +155,19 @@ function parseDateValue(v) {
 function newScoreSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var template_sheet = ss.getSheetByName("Template");
+  if (!template_sheet) {
+    SpreadsheetApp.getUi().alert('Template sheet not found!');
+    return;
+  }
   var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
 
-  // Count existing score sheets to determine next emoji.
-  // Score sheets follow the pattern "🟢 MM-dd-yyyy" or "🟡 MM-dd-yyyy".
-  // Alternate: 1st🟢, 2nd🟡, 3rd🟢, 4th🟡, etc.
   var GREEN = '🟢 ';
   var YELLOW = '🟡 ';
   var sheets = ss.getSheets();
   var scoreCount = 0;
   var latestIndex = -1;
-  var datePattern = /^.{1,4}\s+(\d{2}-\d{2}-\d{4})$/;
+  // FIXED: match emoji (2 chars) + single space + date
+  var datePattern = /^..\s(\d{2}-\d{2}-\d{4})$/;
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
     if (datePattern.test(name)) {
@@ -176,8 +178,6 @@ function newScoreSheet() {
   var nextEmoji = (scoreCount % 2 === 0) ? GREEN : YELLOW;
 
   var displayName = nextEmoji + date_str;
-  // Insert to the left of the most recent score sheet.
-  // System/Rules stays to the left of all score sheets.
   var insertIndex = latestIndex > 1 ? latestIndex - 1 : 1;
   var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
   sheet.showSheet();
