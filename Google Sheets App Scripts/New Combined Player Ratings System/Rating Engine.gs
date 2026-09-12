@@ -260,7 +260,6 @@ function runEngineCore(sheet, sheetName) {
       // "=+22.50."); an explicit stringValue does not. The trailing '.' is
       // colored #c9daf8 (the column background) via textFormatRuns so it is
       // invisible but holds real width on every platform.
-      var blue = { red: 0.7882353, green: 0.85490197, blue: 0.972549 };
       var rowsData = [];
       for (var j = 0; j < leagueRows.length; j++) {
         var cells = [];
@@ -273,22 +272,6 @@ function runEngineCore(sheet, sheetName) {
               horizontalAlignment: 'RIGHT'
             }
           };
-          if (txt !== '') {
-            // Black run at index 0 keeps the visible text black (a lone dot run
-            // would bleed its color across the whole cell); the trailing '.' is
-            // then colored #c9daf8 so it is invisible against the background.
-            var runs = [{
-              startIndex: 0,
-              format: { foregroundColor: { red: 0, green: 0, blue: 0 } }
-            }];
-            if (txt.charAt(txt.length - 1) === '.') {
-              runs.push({
-                startIndex: txt.length - 1,
-                format: { foregroundColor: blue }
-              });
-            }
-            cell.textFormatRuns = runs;
-          }
           cells.push(cell);
         }
         rowsData.push({ values: cells });
