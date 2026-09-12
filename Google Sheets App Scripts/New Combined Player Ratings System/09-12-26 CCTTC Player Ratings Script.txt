@@ -259,43 +259,26 @@ function newScoreSheet() {
     SpreadsheetApp.getUi().alert('Template sheet not found!');
     return;
   }
-  var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
-
-var GREEN = '🟢 ';
-  var YELLOW = '🟡 ';
-  var sheets = ss.getSheets();
   
-  // Find the most recent dated tab by parsing actual dates, not tab position
-  var latestDate = null;
-  var latestEmoji = null;
-  var datePattern = /^..\s(\d{2}-\d{2}-\d{4})$/;
+  // Find the "🔴 System/Rules" sheet and place new tab to its right
+  var insertIndex = 1; // default fallback
+  var sheets = ss.getSheets();
   for (var i = 0; i < sheets.length; i++) {
-    var name = sheets[i].getName();
-    var match = name.match(/^(..)\s(\d{2}-\d{2}-\d{4})$/);
-    if (match) {
-      var emoji = match[1];
-      var dateStr = match[2];
-      var parts = dateStr.split('-');
-      var date = new Date(parts[2], parts[0] - 1, parts[1]); // MM-dd-yyyy
-      if (!latestDate || date > latestDate) {
-        latestDate = date;
-        latestEmoji = match[1];
-      }
+    if (sheets[i].getName() === "🔴 System/Rules") {
+      insertIndex = sheets[i].getIndex() + 1; // Place to the right of System/Rules
+      break;
     }
   }
   
-  // Determine next emoji: alternate from the most recent tab's emoji
-  var nextEmoji;
-  if (latestEmoji === '🟢 ') {
-    nextEmoji = '🟡 ';
-  } else if (latestEmoji === '🟡 ') {
-    nextEmoji = '🟢 ';
-  } else {
-    // Fallback: if no dated tabs exist, start with green
-    nextEmoji = '🟢 ';
-  }
+  var displayName = '🟢 ' + Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
   
-  var date_str = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
+  var sheet = ss.insertSheet(displayName, insertIndex, {template: template_sheet});
+  sheet.showSheet();
+  sheet.setTabColor('#00ff00');
+  ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
+    sheet.getRange(r).setNumberFormat("@");
+  });
+}
   
   Logger.log("scoreCount: " + scoreCount + ", latestIndex: " + latestIndex);
   Logger.log("displayName: " + displayName);
