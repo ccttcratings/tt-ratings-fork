@@ -295,7 +295,7 @@ function runEngineCore(sheet, sheetName) {
       }
       var startRow = LEAGUE_START_ROWS[l] - 1; // 0-indexed
       var endRow = startRow + leagueRows.length;
-      Sheets.Spreadsheets.batchUpdate({
+Sheets.Spreadsheets.batchUpdate({
         requests: [{
           updateCells: {
             range: {
@@ -316,7 +316,47 @@ function runEngineCore(sheet, sheetName) {
         'click + next to Services, add "Sheets", click Save, then run again.');
       return;
     }
-  }
+
+    // --- ANDROID PADDING FIX FOR COLUMNS F, G, H ---
+    // Add one NBSP prefix to F(6), G(7), H(8) to prevent Android from collapsing
+    // leading spaces. Skip merged header rows (winner names) in each league block.
+    var paddingSpace = "\u00A0"; // 1 non-breaking space
+    var colsToPad = [6, 7, 8]; // F=6, G=7, H=8
+    var leagueRangesA1 = LEAGUE_RATING_RANGES; // ['F5:H10', 'F26:H31', 'F47:H52']
+
+    // In each league block (21 rows), skip merged header rows 1-4 and 11-14 (0-indexed: 0-3, 10-13)
+    var skipRowsInBlock = [1,2,3,4, 11,12,13,14]; // 1-indexed within each 21-row block
+
+    leagueRows.forEach(function(leagueA1, li) {
+      var range = dateSheet.getRange(leagueA1);
+      var values = range.getValues();
+      var formulas = range.getFormulas();
+      var startRow = range.getRow();
+      var startCol = range.getColumn();
+
+      // Skip rows that are merged (winner names): rows 1-4 and 11-14 in each 21-row block
+      var skipRowsInBlock = [1,2,3,4, 11,12,13,14]; // 1-indexed within 21-row block
+
+      for (var i = 0; i < range.getNumRows(); i++) {
+        var rowInBlock = (i % 21) + 1; // 1-indexed position within 21-row league block
+        if ([1,2,3,4, 11,12,13,14].indexOf(rowInBlock) !== -1) continue; // skip merged header rows
+
+        for (var c = 0; c < 3; c++) { // F(6), G(7), H(8)
+          var col = 6 + c; // F=6, G=7, H=8
+          var cell = dateSheet.getRange(startRow + i, 6 + c);
+          var cellValue = cell.getValue().toString();
+          var cellFormula = cell.getFormula();
+
+          if (cellValue !== "" && cellFormula === "") {
+            // Only pad if not already padded and not a formula
+            if (!cellValue.startsWith("\u00A0")) {
+              var cleanedValue = cellValue.replace(/^\s+/, "");
+              dateSheet.getRange(startRow + i + 1, 6 + c).setValue("\u00A0" + cleanedValue);
+            }
+          }
+        }
+      }
+    });
 
   // Write the highest point winner for each league to F14/F35/F56: the player
   // in that league whose rating gain this run is the biggest.
