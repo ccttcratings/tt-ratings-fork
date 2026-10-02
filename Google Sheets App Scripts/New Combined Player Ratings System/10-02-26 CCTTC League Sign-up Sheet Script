@@ -1,0 +1,455 @@
+const RESPONSE_SPREADSHEET_ID = '1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk';
+const MAIN_SPREADSHEET_ID = '1qKcKXmaVmOFZsXjNSIdBMhtCJOJmF4YaMUvbmAczvIc';
+const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com, bryant@champaigntabletennis.com';
+const HEADER_ROW = 1;
+
+function sendSaturdayEmail() {
+  try {
+    const signUpSS = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    const ratingsSS = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+    const ratingsSheet = ratingsSS.getSheetByName('🔵 Ratings');
+
+    // Build email lookup maps from Ratings sheet if it exists
+    const emailToRating = {};
+    const emailToDBName = {};
+
+    function addEmailLookup(emailAddr, rating, dbName) {
+      if (emailAddr && String(emailAddr).trim() !== '') {
+        const emailKey = String(emailAddr).trim().toLowerCase();
+        if (!emailToRating[emailKey]) {
+          emailToRating[emailKey] = rating || 0;
+          emailToDBName[emailKey] = dbName || 'Unknown';
+        }
+      }
+    }
+
+    if (ratingsSheet) {
+      const ratingsData = ratingsSheet.getRange('A2:DC').getValues();
+      for (let i = 0; i < ratingsData.length; i++) {
+        // RESTORED RAW TRACKING ARRAY COORDINATES
+        addEmailLookup(ratingsData[i][103], ratingsData[i][2], ratingsData[i][1]);
+        addEmailLookup(ratingsData[i][106], ratingsData[i][2], ratingsData[i][1]);
+      }
+    }
+
+    const today = new Date();
+    const sheetName = formatDateForSheet(today);
+    
+    // TARGET SELECTION: Find the active live form response tab dynamically
+    let signUpSheet = null;
+    const allSheets = signUpSS.getSheets();
+    for (let s = 0; s < allSheets.length; s++) {
+      if (allSheets[s].getName().includes('Form Responses') || allSheets[s].getName() === 'Raw ' + sheetName) {
+        signUpSheet = allSheets[s];
+        break;
+      }
+    }
+
+    if (!signUpSheet) {
+      sendErrorEmail(`Saturday live response sheet not found.`);
+      return;
+    }
+
+    const signUpData = signUpSheet.getDataRange().getValues();
+    const headers = signUpData[HEADER_ROW - 1];
+    
+    // HARDCODED INDEX MAPS: Bypasses string checks to stay 100% immune to stylized text shapes!
+    const emailColIndex = 2;   // Column C (0-based index 2)
+    const playingColIndex = 3; // Column D (0-based index 3)
+    const nameColIndex = 1;    // Column B (0-based index 1)
+    const anonColIndex = 4;    // Column E (0-based index 4)
+
+    const yesPlayers = [];
+    const otherPlayers = [];
+
+    for (let i = HEADER_ROW; i < signUpData.length; i++) {
+      const row = signUpData[i];
+      const email = String(row[emailColIndex] || '').trim().toLowerCase();
+      const playingStatus = String(row[playingColIndex] || '').trim();
+      const signUpName = String(row[nameColIndex] || '').trim();
+
+      if (!email || email === '') {
+        continue;
+      }
+
+      // FORM SUBSTRING SCANNERS: Converts your specific prompt questions straight into short codes
+      let optCode = '';
+      if (anonColIndex !== -1) {
+        const choiceText = String(row[anonColIndex] || '').toLowerCase();
+        
+        if (choiceText.includes('congratulated')) {
+          optCode = '/'; // Tier 1: Anonymize Name Only (Show / display rating numbers)
+        } else if (choiceText.includes('rewarded')) {
+          optCode = 'X'; // Tier 2: Anonymize Name & Rating (Hide rating completely)
+        }
+      }
+
+      const displayName = signUpName || emailToDBName[email] || 'Unknown';
+      const playerInfo = {
+        name: displayName,
+        rating: parseFloat(emailToRating[email]) || 0,
+        playingStatus: playingStatus,
+        optStatus: optCode 
+      };
+
+      if (isYesResponse(playingStatus)) {
+        yesPlayers.push(playerInfo);
+      } else {
+        otherPlayers.push(playerInfo);
+      }
+    }
+
+    yesPlayers.sort((a, b) => b.rating - a.rating);
+    otherPlayers.sort((a, b) => b.rating - a.rating);
+
+    let emailBody = '<html><body>';
+    emailBody += `<h2>Saturday Table Tennis Sign-ups for ${sheetName}</h2>`;
+    emailBody += '<h3>Players Planning to Attend:</h3>';
+    emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
+    emailBody += '<tr><th style="background-color: #b6d7a8; padding: 8px;"></th><th style="background-color: #b6d7a8; padding: 8px; text-align: left;">Names</th><th style="background-color: #b6d7a8; padding: 8px;">Ratings</th><th style="background-color: #b6d7a8; padding: 8px; text-align: center;">Y/N</th><th style="background-color: #b6d7a8; padding: 8px; text-align: center;">Opt</th></tr>';
+    
+    for (let i = 0; i < yesPlayers.length; i++) {
+      const player = yesPlayers[i];
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px; text-align: right;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td><td style="padding: 8px; text-align: center;">${player.optStatus}</td></tr>`;
+    }
+
+    emailBody += '</table>';
+    emailBody += '<hr style="border: 2px solid black; margin: 20px 0;">';
+    emailBody += '<h3>Other Responses:</h3>';
+    emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
+    emailBody += '<tr><th style="background-color: #FFA5A5; padding: 8px;"></th><th style="background-color: #FFA5A5; padding: 8px; text-align: left;">Names</th><th style="background-color: #FFA5A5; padding: 8px;">Ratings</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Y/N</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Opt</th></tr>';
+
+    for (let i = 0; i < otherPlayers.length; i++) {
+      const player = otherPlayers[i];
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px; text-align: right;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td><td style="padding: 8px; text-align: center;">${player.optStatus}</td></tr>`;
+    }
+
+    emailBody += '</table>';
+    emailBody += `<p><br>Total responses: ${yesPlayers.length + otherPlayers.length}</p>`;
+    emailBody += `<p>Players planning to attend: ${yesPlayers.length}</p>`;
+    emailBody += '</body></html>';
+
+    GmailApp.sendEmail(
+      RECIPIENT_EMAIL,
+      `Table Tennis Sign-ups for ${sheetName}`,
+      '',
+      { htmlBody: emailBody, name: 'CCTTC Ratings System' }
+    );
+
+    Logger.log(`Email sent successfully to ${RECIPIENT_EMAIL} for ${sheetName}`);
+
+  } catch (error) {
+    sendErrorEmail(`Error in sendSaturdayEmail: ${error.toString()}\n\nStack trace: ${error.stack}`);
+  }
+
+  // =================================================================
+  // EMBEDDED UTILITY HELPER CODES (SAFE WITHIN MASTER FUNCTION SCOPE)
+  // =================================================================
+  function isYesResponse(response) {
+    if (!response || response === '') return false;
+    const lowerResponse = String(response).toLowerCase().trim();
+    if (lowerResponse.includes('not')) return false;
+    if (lowerResponse.includes('y')) return true;
+    const specialWords = ['affirmative', 'sure', 'indeed'];
+    for (const word of specialWords) {
+      if (lowerResponse.includes(word)) return true;
+    }
+    return false;
+  }
+  }
+
+  function formatDateForSheet(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  }
+
+  function getNextSaturday(date) {
+    var skipDays = (6 - date.getDay() + 7) % 7;
+    var nextSat = new Date(date.getTime());
+    nextSat.setDate(date.getDate() + skipDays);
+    return nextSat;
+  }
+
+function createDisplayTab() {
+  try {
+    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    var template = ss.getSheetByName('Template');
+    if (!template) {
+      throw new Error('Template tab not found in sign-up spreadsheet');
+    }
+
+    // Get the upcoming Saturday and calculate the previous Saturday (7 days prior)
+    var nextSat = getNextSaturday(new Date());
+    var prevSat = new Date(nextSat.getTime() - 7 * 24 * 60 * 60 * 1000); // minus 7 days
+    
+    var displayName = formatDateForSheet(nextSat);
+    var prevDisplayName = formatDateForSheet(prevSat);
+    var prevRawName = 'Raw ' + prevDisplayName;
+
+    // Check if the display tab already exists. If it does, stop early.
+    if (ss.getSheetByName(displayName)) {
+      Logger.log('Display tab "' + displayName + '" already exists - skipping.');
+      return;
+    }
+
+    // 1. CREATE THE NEW TAB FIRST
+    // This ensures there is always an extra visible sheet, preventing the crash.
+    var copy = template.copyTo(ss);
+    copy.setName(displayName).showSheet();
+    ss.setActiveSheet(copy);
+    ss.moveActiveSheet(0);
+    Logger.log('Created display tab "' + displayName + '" from Template.');
+
+    // 2. CLEAN UP OLD DISPLAY TAB
+    var prevDisplaySheet = ss.getSheetByName(prevDisplayName);
+    if (prevDisplaySheet) {
+      ss.deleteSheet(prevDisplaySheet);
+      Logger.log('Deleted previous week display tab: ' + prevDisplayName);
+    }
+
+    // 3. SMART CLEANUP: Only delete the old Raw tab if the new week's Raw tab is ready.
+    // This protects your active form destination link if scripts run out of order on Sundays.
+    var currentRawSheetName = 'Raw ' + displayName;
+    var currentRawSheetExists = ss.getSheetByName(currentRawSheetName);
+    
+    if (currentRawSheetExists) {
+      var prevRawSheet = ss.getSheetByName(prevRawName);
+      if (prevRawSheet) {
+        ss.deleteSheet(prevRawSheet);
+        Logger.log('Deleted previous week raw tab: ' + prevRawName);
+      }
+    } else {
+      Logger.log('New Raw tab "' + currentRawSheetName + '" not found yet. Postponing old Raw tab deletion to preserve form connection.');
+    }
+
+  } catch (error) {
+    sendErrorEmail('Error in createDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  }
+}
+
+function populateDisplayTab() {
+  try {
+    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    var displayName = formatDateForSheet(getNextSaturday(new Date()));
+    var rawSheet = ss.getSheetByName('Raw ' + displayName);
+    var display = ss.getSheetByName(displayName);
+
+    if (!rawSheet) {
+      throw new Error('Raw tab "Raw ' + displayName + '" not found.');
+    }
+    if (!display) {
+      throw new Error('Display tab "' + displayName + '" not found - run createDisplayTab() first.');
+    }
+
+    var rawLastRow = rawSheet.getLastRow();
+    if (rawLastRow < 2) {
+      Logger.log('No responses in "Raw ' + displayName + '" yet.');
+      return 0;
+    }
+    var rawLastCol = rawSheet.getLastColumn();
+    var headers = rawSheet.getRange(1, 1, 1, rawLastCol).getValues()[0];
+    var tsIdx = -1, emailIdx = -1, nameIdx = -1, playingIdx = -1;
+    for (var c = 0; c < headers.length; c++) {
+      var h = String(headers[c] || '').toLowerCase();
+      if (h.indexOf('timestamp') !== -1) { tsIdx = c; }
+      else if (h.indexOf('email') !== -1) { emailIdx = c; }
+      else if (h.indexOf('name') !== -1) { nameIdx = c; }
+      else if (h.indexOf('playing') !== -1) { playingIdx = c; }
+    }
+    if (tsIdx === -1 || emailIdx === -1 || nameIdx === -1 || playingIdx === -1) {
+      tsIdx = 0; emailIdx = 1; nameIdx = 2; playingIdx = 3;
+    }
+
+    var dataRows = rawSheet.getRange(2, 1, rawLastRow - 1, rawLastCol).getValues();
+    var players = [];
+    for (var r = 0; r < dataRows.length; r++) {
+      var row = dataRows[r];
+      var ts = row[tsIdx];
+      var email = String(row[emailIdx] || '').trim();
+      var name = String(row[nameIdx] || '').trim();
+      var playing = String(row[playingIdx] || '').trim();
+      var combined = (email + ' ' + name + ' ' + playing).toLowerCase();
+      if (combined.indexOf('player limit') !== -1 || combined.indexOf('total player') !== -1) {
+        continue;
+      }
+      if (!email && !name && !playing) { continue; }
+      players.push([ts, '  ' + email, '  ' + name, playing]);
+    }
+    if (players.length === 0) {
+      Logger.log('No valid responses to populate.');
+      return 0;
+    }
+
+    var footerRow = findFooterRow(display, 6);
+    if (!footerRow) {
+      throw new Error('Footer row not found on display tab "' + displayName + '".');
+    }
+
+    if (footerRow > 6) {
+      display.deleteRows(6, footerRow - 6);
+    }
+    display.insertRows(6, players.length);
+
+    display.getRange(6, 5, players.length, 4).setValues(players);
+    Logger.log('Populated "' + displayName + '" with ' + players.length + ' players.');
+    return players.length;
+  } catch (error) {
+    sendErrorEmail('Error in populateDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+    return 0;
+  }
+}
+
+function findFooterRow(sheet, fromRow) {
+  var lastRow = sheet.getLastRow();
+  for (var r = fromRow; r <= lastRow; r++) {
+    var vals = sheet.getRange(r, 1, 1, sheet.getLastColumn()).getValues()[0];
+    for (var c = 0; c < vals.length; c++) {
+      var v = String(vals[c] || '').toLowerCase();
+      if (v.indexOf('player limit') !== -1 || v.indexOf('total player') !== -1) {
+        return r;
+      }
+    }
+  }
+  return null;
+}
+
+function setupWeeklyDisplay() {
+  refreshDisplayTab();
+}
+
+function testSaturdayEmail() {
+  sendSaturdayEmail();
+}
+
+function onFormSubmit(e) {
+  refreshDisplayTab();
+}
+
+function refreshDisplayTab() {
+  createDisplayTab();
+  var playerCount = populateDisplayTab();
+  var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+  var displayName = formatDateForSheet(getNextSaturday(new Date()));
+  var display = ss.getSheetByName(displayName);
+  if (display && playerCount > 0) {
+    formatDisplayRows(display, playerCount);
+  }
+}
+
+function formatDisplayRows(display, playerCount) {
+  try {
+    if (!playerCount || playerCount < 1) return;
+    var lastRow = 5 + playerCount;
+    var black = '#000000';
+    var thin = SpreadsheetApp.BorderStyle.SOLID_THIN;
+    var medium = SpreadsheetApp.BorderStyle.SOLID_MEDIUM;
+    var thick = SpreadsheetApp.BorderStyle.SOLID_THICK;
+
+    for (var r = 6; r <= lastRow; r++) {
+      var alt = ((r - 6) % 2 === 0) ? '#ffffff' : '#d9d9d9';
+      display.getRange(r, 1, 1, 11).setFontFamily('Roboto').setFontSize(11).setFontWeight('bold').setFontColor(black);
+      
+      // Styling columns 1 through 11 loop
+      for (var c = 1; c <= 11; c++) {
+        var cell = display.getRange(r, c);
+        switch (c) {
+          case 1:
+            cell.setBackground('#d9ead3');
+            break;
+          case 2:
+            cell.setBackground('#dad3bc');
+            cell.setBorder(null, true, null, null, false, false, black, medium);
+            cell.setBorder(null, null, null, true, false, false, black, thick);
+            break;
+          case 3:
+            cell.setBackground('#b3ab8d');
+            cell.setBorder(null, null, null, true, false, false, black, thick);
+            break;
+          case 4:
+            cell.setBackground(alt);
+            cell.setBorder(true, null, null, null, false, false, black, thin);
+            cell.setValue((r - 5) + ".");
+            cell.setHorizontalAlignment('center').setVerticalAlignment('middle');
+            break;
+          case 5:
+            cell.setBackground(alt);
+            cell.setBorder(null, true, null, true, false, false, black, thin);
+            cell.setBorder(true, null, null, null, false, false, black, thin);
+            cell.setNumberFormat('M/d/yyyy HH:mm:ss');
+            cell.setHorizontalAlignment('center').setVerticalAlignment('middle');
+            break;
+          case 6:
+            cell.setBackground(alt);
+            cell.setBorder(true, null, null, null, false, false, black, thin);
+            cell.setHorizontalAlignment('left').setVerticalAlignment('middle');
+            break;
+          case 7:
+            cell.setBackground(alt);
+            cell.setBorder(null, true, null, true, false, false, black, thin);
+            cell.setBorder(true, null, null, null, false, false, black, thin);
+            cell.setHorizontalAlignment('left').setVerticalAlignment('middle');
+            break;
+          case 8:
+            cell.setBackground(alt);
+            cell.setBorder(true, null, null, null, false, false, black, thin);
+            cell.setHorizontalAlignment('center').setVerticalAlignment('middle');
+            break;
+          case 9:
+            cell.setBackground('#dad3bc');
+            cell.setBorder(null, true, null, true, false, false, black, thick);
+            break;
+          case 10:
+            cell.setBackground('#b3ab8d');
+            cell.setBorder(null, true, null, null, false, false, black, thick);
+            cell.setBorder(null, null, null, true, false, false, black, medium);
+            break;
+          case 11:
+            cell.setBackground('#d9ead3');
+            break;
+        }
+      } // End of column loop (c)
+
+      // BUG FIX: Android Padding Fix moved completely outside the column loop (c)
+      // This stops spaces from stacking 11 times onto Columns F (6) & G (7)
+      var colsToPad = [6, 7];
+      var paddingSpaces = "\u00A0\u00A0\u00A0"; // 3 Non-breaking spaces (Android-safe)
+      
+      colsToPad.forEach(function(colNum) {
+        var paddingCell = display.getRange(r, colNum);
+        var cellValue = paddingCell.getValue().toString();
+        var cellFormula = paddingCell.getFormula();
+        
+        if (cellValue !== "" && cellFormula === "") {
+          if (!cellValue.startsWith(paddingSpaces)) {
+            var cleanedValue = cellValue.replace(/^\s+/, ""); // Clear old spaces
+            paddingCell.setValue(paddingSpaces + cleanedValue);
+          }
+        }
+      });
+
+      display.setRowHeight(r, 30);
+    } // End of row loop (r)
+    
+    display.getRange(5, 4, 1, 5).setBorder(null, null, true, null, false, false, black, thick);
+  } catch (error) {
+    sendErrorEmail('Error in formatDisplayRows: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  }
+}
+
+/**
+ * Global Utility Error Function: Accessible by all spreadsheet tracking buttons
+ */
+function sendErrorEmail(errorMessage) {
+  try {
+    GmailApp.sendEmail(
+      RECIPIENT_EMAIL,
+      'ERROR: Saturday Table Tennis System Crash Alert',
+      errorMessage,
+      { name: 'CCTTC Ratings System - ERROR' }
+    );
+    Logger.log('Error email sent globally: ' + errorMessage);
+  } catch (e) {
+    Logger.log('Failed to send error email: ' + e.toString());
+    Logger.log('Original error: ' + errorMessage);
+  }
+}
