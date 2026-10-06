@@ -260,15 +260,39 @@ function newScoreSheet() {
     SpreadsheetApp.getUi().alert('Template sheet not found!');
     return;
   }
-  var displayName = '🟢 ' + Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
+  
+  var allSheets = ss.getSheets();
+  var nextColor = '#00ff00'; 
+  var emojiPrefix = '🟢 ';
+  
+  if (allSheets.length > 4) {
+    var prevWeekSheet = allSheets[4]; 
+    var prevColor = prevWeekSheet.getTabColor();
+    
+    if (prevColor === '#00ff00' || prevColor === 'rgba(0, 255, 0, 1)') {
+      nextColor = '#f1c232'; 
+      emojiPrefix = '🟡 ';
+    } else {
+      nextColor = '#00ff00';
+      emojiPrefix = '🟢 ';
+    }
+  }
+  
+  var dateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MM-dd-yyyy");
+  var displayName = emojiPrefix + dateStr;
+  
+  if (ss.getSheetByName(displayName)) {
+    SpreadsheetApp.getUi().alert('Score sheet for ' + displayName + ' already exists!');
+    return;
+  }
+  
   var sheet = ss.insertSheet(displayName, {template: template_sheet});
   sheet.showSheet();
-  sheet.setTabColor('#00ff00');
-  var rulesSheet = ss.getSheetByName("🔴 System/Rules");
-  if (rulesSheet) {
-    ss.setActiveSheet(sheet);
-    ss.moveActiveSheet(rulesSheet.getIndex() + 1); // Snaps exactly 1 slot to the right!
-  }
+  sheet.setTabColor(nextColor);
+  
+  ss.setActiveSheet(sheet);
+  ss.moveActiveSheet(5);
+  
   ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
   });
