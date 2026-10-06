@@ -1,0 +1,498 @@
+const RESPONSE_SPREADSHEET_ID = '1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk';
+const MAIN_SPREADSHEET_ID = '1qKcKXmaVmOFZsXjNSIdBMhtCJOJmF4YaMUvbmAczvIc';
+const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com';
+const HEADER_ROW = 1;
+
+function sendSaturdayEmail() {
+  try {
+    const signUpSS = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    const ratingsSS = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+    const ratingsSheet = ratingsSS.getSheetByName('🔵 Ratings');
+
+    const emailToRating = {};
+    const emailToDBName = {};
+
+    function addEmailLookup(emailAddr, rating, dbName) {
+      if (emailAddr && String(emailAddr).trim() !== '') {
+        const emailKey = String(emailAddr).trim().toLowerCase();
+        if (!emailToRating[emailKey]) {
+          emailToRating[emailKey] = rating || 0;
+          emailToDBName[emailKey] = dbName || 'Unknown';
+        }
+      }
+    }
+
+    if (ratingsSheet) {
+      const ratingsData = ratingsSheet.getRange('A2:DC').getValues();
+      for (let i = 0; i < ratingsData.length; i++) {
+        addEmailLookup(ratingsData[i][103], ratingsData[i][2], ratingsData[i][1]);
+        addEmailLookup(ratingsData[i][106], ratingsData[i][2], ratingsData[i][1]);
+      }
+    }
+
+    const targetSaturdayDate = getNextSaturday(new Date());
+    const sheetName = formatDateForSheet(targetSaturdayDate);
+    
+    const displaySheet = signUpSS.getSheetByName(sheetName);
+    const rawSheet = signUpSS.getSheetByName('Raw ' + sheetName);
+
+    if (!displaySheet) {
+      sendErrorEmail(`Saturday display sheet not found: ${sheetName}`);
+      return;
+    }
+    if (!rawSheet) {
+      sendErrorEmail(`Saturday raw sheet not found: Raw ${sheetName}`);
+      return;
+    }
+
+    const rawData = rawSheet.getDataRange().getValues();
+    const nameColIndex = 1;    
+    const emailColIndex = 2;   
+    const playingColIndex = 3; 
+    const anonColIndex = 4;    
+
+    const nameToLatestEmailMap = {};
+    const trackedEmails = {};
+    const trackedNames = {};
+    const otherPlayersMap = {};
+
+    for (let i = rawData.length - 1; i >= HEADER_ROW; i--) {
+      const row = rawData[i];
+      const email = String(row[emailColIndex] || '').trim().toLowerCase();
+      const playingStatus = String(row[playingColIndex] || '').trim();
+      const signUpName = String(row[nameColIndex] || '').trim();
+
+      if (!email || email === '' || !signUpName || signUpName === '') continue;
+
+      const normName = signUpName.toLowerCase();
+      
+      if (!(normName in nameToLatestEmailMap)) {
+        nameToLatestEmailMap[normName] = email;
+      }
+
+      if (!(email in trackedEmails)) {
+        trackedEmails[email] = playingStatus;
+
+        if (playingStatus === "No") {
+          let optCode = '';
+          if (anonColIndex !== -1) {
+            const choiceText = String(row[anonColIndex] || '').toLowerCase();
+            if (choiceText.includes('rating')) optCode = 'X';
+            else if (choiceText.includes('e.g.')) optCode = '/';
+          }
+
+          const displayName = signUpName || emailToDBName[email] || 'Unknown';
+          const playerRating = parseFloat(emailToRating[email]) || 0;
+
+          otherPlayersMap[email] = {
+            name: displayName,
+            email: email,
+            rating: playerRating,
+            playingStatus: "No",
+            optStatus: optCode
+          };
+        }
+      }
+
+      if (!(normName in trackedNames)) {
+        trackedNames[normName] = playingStatus;
+        
+        if (playingStatus === "No" && !(email in otherPlayersMap)) {
+          let optCode = '';
+          if (anonColIndex !== -1) {
+            const choiceText = String(row[anonColIndex] || '').toLowerCase();
+            if (choiceText.includes('rating')) optCode = 'X';
+            else if (choiceText.includes('e.g.')) optCode = '/';
+          }
+
+          const displayName = signUpName || emailToDBName[email] || 'Unknown';
+          const playerRating = parseFloat(emailToRating[email]) || 0;
+
+          otherPlayersMap[email] = {
+            name: displayName,
+            email: email,
+            rating: playerRating,
+            playingStatus: "No",
+            optStatus: optCode
+          };
+        }
+      }
+    }
+
+    const yesPlayers = [];
+    const otherPlayers = [];
+
+    const footerRow = findFooterRow(displaySheet, 6);
+    const lastPlayerRow = footerRow ? footerRow - 1 : displaySheet.getLastRow();
+    
+    if (lastPlayerRow >= 6) {
+      const displayNames = displaySheet.getRange(6, 5, lastPlayerRow - 6 + 1, 1).getValues();
+      
+      for (let i = 0; i < displayNames.length; i++) {
+        const cleanName = String(displayNames[i]).replace(/\u00A0/g, '').trim();
+        if (!cleanName || cleanName === '') continue;
+
+        const normName = cleanName.toLowerCase();
+        const associatedEmail = nameToLatestEmailMap[normName] || "";
+        const playerRating = associatedEmail ? (parseFloat(emailToRating[associatedEmail]) || 0) : 0;
+        const finalDisplayName = associatedEmail ? (emailToDBName[associatedEmail] || cleanName) : cleanName;
+
+        let optCode = '';
+        if (associatedEmail) {
+          for (let r = rawData.length - 1; r >= HEADER_ROW; r--) {
+            if (String(rawData[r][emailColIndex]).trim().toLowerCase() === associatedEmail) {
+              const choiceText = String(rawData[r][anonColIndex] || '').toLowerCase();
+              if (choiceText.includes('rating')) optCode = 'X';
+              else if (choiceText.includes('e.g.')) optCode = '/';
+              break;
+            }
+          }
+        }
+
+        yesPlayers.push({
+          name: finalDisplayName,
+          email: associatedEmail,
+          rating: playerRating,
+          playingStatus: "Yes",
+          optStatus: optCode
+        });
+      }
+    }
+
+    for (let emailKey in otherPlayersMap) {
+      var op = otherPlayersMap[emailKey];
+      var opNormName = op.name.toLowerCase();
+      var opEmail = op.email.toLowerCase();
+      
+      var isCurrentlyAttending = false;
+      
+      for (let y = 0; y < yesPlayers.length; y++) {
+        if (yesPlayers[y].name.toLowerCase() === opNormName || yesPlayers[y].email.toLowerCase() === opEmail) {
+          isCurrentlyAttending = true;
+          break;
+        }
+      }
+      
+      if (!isCurrentlyAttending) {
+        otherPlayers.push(op);
+      }
+    }
+
+    yesPlayers.sort((a, b) => b.rating - a.rating);
+    otherPlayers.sort((a, b) => b.rating - a.rating);
+
+    let emailBody = '<html><body>';
+    emailBody += `<h2>Saturday Table Tennis Sign-ups for ${sheetName}</h2>`;
+    emailBody += '<h3>Players Planning to Attend:</h3>';
+    emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
+    emailBody += '<tr><th style="background-color: #b6d7a8; padding: 8px;"></th><th style="background-color: #b6d7a8; padding: 8px; text-align: left;">Names:</th><th style="background-color: #b6d7a8; padding: 8px;">Ratings:</th><th style="background-color: #b6d7a8; padding: 8px; text-align: center;">Opt:</th></tr>';
+    
+    for (let i = 0; i < yesPlayers.length; i++) {
+      const player = yesPlayers[i];
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px; text-align: right;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.optStatus}</td></tr>`;
+    }
+
+    emailBody += '</table>';
+    emailBody += '<hr style="border: 2px solid black; margin: 20px 0;">';
+    emailBody += '<h3>Other Responses:</h3>';
+    emailBody += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">';
+    emailBody += '<tr><th style="background-color: #FFA5A5; padding: 8px;"></th><th style="background-color: #FFA5A5; padding: 8px; text-align: left;">Names:</th><th style="background-color: #FFA5A5; padding: 8px;">Ratings:</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Status:</th><th style="background-color: #FFA5A5; padding: 8px; text-align: center;">Opt:</th></tr>';
+
+    for (let i = 0; i < otherPlayers.length; i++) {
+      const player = otherPlayers[i];
+      emailBody += `<tr><td style="padding: 8px;">${i + 1}.</td><td style="padding: 8px;">${player.name}</td><td style="padding: 8px; text-align: right;">${player.rating.toFixed(2)}</td><td style="padding: 8px; text-align: center;">${player.playingStatus}</td><td style="padding: 8px; text-align: center;">${player.optStatus}</td></tr>`;
+    }
+
+    emailBody += '</table>';
+    emailBody += `<p><br>Total responses: ${yesPlayers.length + otherPlayers.length}</p>`;
+    emailBody += `<p>Players planning to attend: ${yesPlayers.length}</p>`;
+    emailBody += '</body></html>';
+
+    GmailApp.sendEmail(
+      RECIPIENT_EMAIL,
+      `Table Tennis Sign-ups for ${sheetName}`,
+      '',
+      { htmlBody: emailBody, name: 'CCTTC Ratings System' }
+    );
+
+    Logger.log(`Email sent successfully to ${RECIPIENT_EMAIL} for ${sheetName}`);
+
+  } catch (error) {
+    sendErrorEmail(`Error in sendSaturdayEmail: ${error.toString()}\n\nStack trace: ${error.stack}`);
+  }
+}
+
+  function formatDateForSheet(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  }
+
+  function getNextSaturday(date) {
+    var skipDays = (6 - date.getDay() + 7) % 7;
+    var nextSat = new Date(date.getTime());
+    nextSat.setDate(date.getDate() + skipDays);
+    return nextSat;
+  }
+
+function createDisplayTab() {
+  try {
+    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    var template = ss.getSheetByName('Template');
+    if (!template) {
+      throw new Error('Template tab not found in sign-up spreadsheet');
+    }
+
+    // Get the upcoming Saturday and calculate the previous Saturday (7 days prior)
+    var nextSat = getNextSaturday(new Date());
+    var prevSat = new Date(nextSat.getTime() - 7 * 24 * 60 * 60 * 1000); // minus 7 days
+    
+    var displayName = formatDateForSheet(nextSat);
+    var prevDisplayName = formatDateForSheet(prevSat);
+    var prevRawName = 'Raw ' + prevDisplayName;
+
+    // Check if the display tab already exists. If it does, stop early.
+    if (ss.getSheetByName(displayName)) {
+      Logger.log('Display tab "' + displayName + '" already exists - skipping.');
+      return;
+    }
+
+    // 1. CREATE THE NEW TAB FIRST
+    // This ensures there is always an extra visible sheet, preventing the crash.
+    var copy = template.copyTo(ss);
+    copy.setName(displayName).showSheet();
+    ss.setActiveSheet(copy);
+    ss.moveActiveSheet(0);
+    Logger.log('Created display tab "' + displayName + '" from Template.');
+
+    // 2. CLEAN UP OLD DISPLAY TAB
+    var prevDisplaySheet = ss.getSheetByName(prevDisplayName);
+    if (prevDisplaySheet) {
+      ss.deleteSheet(prevDisplaySheet);
+      Logger.log('Deleted previous week display tab: ' + prevDisplayName);
+    }
+
+    // 3. SMART CLEANUP: Only delete the old Raw tab if the new week's Raw tab is ready.
+    // This protects your active form destination link if scripts run out of order on Sundays.
+    var currentRawSheetName = 'Raw ' + displayName;
+    var currentRawSheetExists = ss.getSheetByName(currentRawSheetName);
+    
+    if (currentRawSheetExists) {
+      var prevRawSheet = ss.getSheetByName(prevRawName);
+      if (prevRawSheet) {
+        ss.deleteSheet(prevRawSheet);
+        Logger.log('Deleted previous week raw tab: ' + prevRawName);
+      }
+    } else {
+      Logger.log('New Raw tab "' + currentRawSheetName + '" not found yet. Postponing old Raw tab deletion to preserve form connection.');
+    }
+
+  } catch (error) {
+    sendErrorEmail('Error in createDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  }
+}
+
+function populateDisplayTab() {
+  try {
+    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    var displayName = formatDateForSheet(getNextSaturday(new Date()));
+    var rawSheet = ss.getSheetByName('Raw ' + displayName);
+    var display = ss.getSheetByName(displayName);
+
+    if (!rawSheet) {
+      throw new Error('Raw tab "Raw ' + displayName + '" not found.');
+    }
+    if (!display) {
+      throw new Error('Display tab "' + displayName + '" not found - run createDisplayTab() first.');
+    }
+
+    var rawLastRow = rawSheet.getLastRow();
+    if (rawLastRow < 2) {
+      Logger.log('No responses in "Raw ' + displayName + '" yet.');
+      return 0;
+    }
+    
+    var rawLastCol = rawSheet.getLastColumn();
+    var headers = rawSheet.getRange(1, 1, 1, rawLastCol).getValues()[0];
+    var nameIdx = -1;
+    var playingIdx = -1;
+    var emailIdx = -1;
+    
+    for (var c = 0; c < headers.length; c++) {
+      var h = String(headers[c] || '').toLowerCase().trim();
+      if (h.indexOf('name') !== -1) { 
+        nameIdx = c; 
+      } else if (h.indexOf('playing') !== -1 || h.indexOf('status') !== -1 || h.indexOf('are you') !== -1) {
+        playingIdx = c;
+      } else if (h.indexOf('email') !== -1) {
+        emailIdx = c;
+      }
+    }
+    
+    if (nameIdx === -1) { nameIdx = 1; }
+    if (playingIdx === -1) { playingIdx = 3; }
+    if (emailIdx === -1) { emailIdx = 2; }
+
+    var dataRows = rawSheet.getRange(2, 1, rawLastRow - 1, rawLastCol).getValues();
+    var players = [];
+    var trackedEmails = {};
+    var trackedNames = {};
+    
+    for (var r = dataRows.length - 1; r >= 0; r--) {
+      var row = dataRows[r];
+      var name = String(row[nameIdx] || '').trim();
+      var nameKey = name.toLowerCase();
+      var emailKey = String(row[emailIdx] || '').trim().toLowerCase();
+      var playingStatus = String(row[playingIdx] || '').trim().toLowerCase();
+      
+      if (!name || name === '') continue;
+      
+      var alreadyTracked = false;
+      if (emailKey && (emailKey in trackedEmails)) alreadyTracked = true;
+      if (nameKey in trackedNames) alreadyTracked = true;
+      
+      if (!alreadyTracked) {
+        if (emailKey) trackedEmails[emailKey] = playingStatus;
+        trackedNames[nameKey] = playingStatus;
+        
+        if (playingStatus === 'yes') {
+          var paddedName = "\u00A0\u00A0\u00A0" + name;
+          players.unshift([paddedName]);
+        }
+      }
+    }
+
+    var organizedPlayers = [];
+    for (var p = 0; p < players.length; p++) {
+      var rowNumberStr = (p + 1) + ".";
+      organizedPlayers.push([rowNumberStr, players[p]]);
+    }
+
+    if (organizedPlayers.length === 0) {
+      var footerRowEmpty = findFooterRow(display, 6);
+      if (footerRowEmpty && footerRowEmpty > 6) {
+        display.getRange(6, 4, footerRowEmpty - 6, 2).clearContent();
+        display.deleteRows(6, footerRowEmpty - 6);
+      }
+      Logger.log('No valid players to populate.');
+      return 0;
+    }
+
+    var footerRow = findFooterRow(display, 6);
+    if (!footerRow) {
+      throw new Error('Footer row not found on display tab "' + displayName + '".');
+    }
+
+    if (footerRow > 6) {
+      display.getRange(6, 4, footerRow - 6, 2).clearContent();
+      display.deleteRows(6, footerRow - 6);
+    }
+    
+    display.insertRows(6, organizedPlayers.length);
+    display.getRange(6, 4, organizedPlayers.length, 2).clearContent();
+    display.getRange(6, 4, organizedPlayers.length, 2).setValues(organizedPlayers);
+    
+    Logger.log('Populated "' + displayName + '" with ' + organizedPlayers.length + ' players.');
+    return organizedPlayers.length;
+  } catch (error) {
+    sendErrorEmail('Error in populateDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+    return 0;
+  }
+}
+
+function findFooterRow(sheet, fromRow) {
+  var lastRow = sheet.getLastRow();
+  for (var r = fromRow; r <= lastRow; r++) {
+    var vals = sheet.getRange(r, 1, 1, sheet.getLastColumn()).getValues()[0];
+    for (var c = 0; c < vals.length; c++) {
+      var v = String(vals[c] || '').toLowerCase();
+      // UPDATED LOOKUP STRING: Matches your newly configured hyperlink cell text natively
+      if (v.indexOf('league results') !== -1 || v.indexOf('results') !== -1) {
+        return r;
+      }
+    }
+  }
+  return null;
+}
+
+function setupWeeklyDisplay() {
+  refreshDisplayTab();
+}
+
+function handleLiveFormSubmission(e) {
+  refreshDisplayTab();
+}
+
+function refreshDisplayTab() {
+  // 1. Give the form engine time to safely commit the data row
+  Utilities.sleep(2000);
+  SpreadsheetApp.flush();
+  
+  // 2. Calculate the TARGET sheet name EXACTLY ONCE up front
+  var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+  var displayName = formatDateForSheet(getNextSaturday(new Date()));
+  
+  // 3. Run your creation setup
+  createDisplayTab();
+  
+  // 4. Run population
+  var playerCount = populateDisplayTab();
+  
+  // 5. Target the explicit display tab directly without re-calculating the date string
+  var display = ss.getSheetByName(displayName);
+  
+  // 6. Format only if the target sheet is verified and has players
+  if (display && playerCount > 0) {
+    formatDisplayRows(display, playerCount);
+  }
+}
+
+function formatDisplayRows(display, playerCount) {
+  try {
+    if (!playerCount || playerCount < 1) return;
+    var lastRow = 5 + playerCount;
+    var black = '#000000';
+    var thin = SpreadsheetApp.BorderStyle.SOLID_THIN;
+    var thick = SpreadsheetApp.BorderStyle.SOLID_THICK;
+
+    for (var r = 6; r <= lastRow; r++) {
+      var alt = ((r - 6) % 2 === 0) ? '#ffffff' : '#d9d9d9';
+      
+      display.getRange(r, 4, 1, 2).setFontFamily('Roboto').setFontSize(11).setFontWeight('bold').setFontColor(black);
+      
+      var numCell = display.getRange(r, 4);
+      numCell.setBackground(alt);
+      numCell.setBorder(true, null, null, null, false, false, black, thin);
+      numCell.setHorizontalAlignment('center').setVerticalAlignment('middle');
+      
+      var nameCell = display.getRange(r, 5);
+      nameCell.setBackground(alt);
+      nameCell.setBorder(true, true, null, true, false, false, black, thin);
+      nameCell.setBorder(null, null, null, true, false, false, black, thick);
+      nameCell.setHorizontalAlignment('left').setVerticalAlignment('middle');
+
+      display.setRowHeight(r, 30);
+    } 
+    
+    display.getRange(5, 4, 1, 2).setBorder(null, null, true, null, false, false, black, thick);
+  } catch (error) {
+    sendErrorEmail('Error in formatDisplayRows: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  }
+}
+
+/**
+ * Global Utility Error Function: Accessible by all spreadsheet tracking buttons
+ */
+function sendErrorEmail(errorMessage) {
+  try {
+    GmailApp.sendEmail(
+      RECIPIENT_EMAIL,
+      'ERROR: Saturday Table Tennis System Crash Alert',
+      errorMessage,
+      { name: 'CCTTC Ratings System - ERROR' }
+    );
+    Logger.log('Error email sent globally: ' + errorMessage);
+  } catch (e) {
+    Logger.log('Failed to send error email: ' + e.toString());
+    Logger.log('Original error: ' + errorMessage);
+  }
+}
