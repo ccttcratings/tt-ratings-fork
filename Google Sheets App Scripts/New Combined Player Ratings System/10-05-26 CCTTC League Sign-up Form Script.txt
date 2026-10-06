@@ -1,0 +1,277 @@
+// GLOBAL CONFIGURATION
+var RESPONSE_SPREADSHEET_ID = "1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk"; 
+
+function newLeagueDate() {
+  var form = FormApp.openById("14a73b_Qcgus5fV3DmNzSGUFxFcZ8ibqYbux1qxs_bVE");
+  var confirmation_msg = "✔ Your response has been recorded! \n\n" +
+                         "Registered players: \n\n" +
+                         "ccttcratings.github.io/portal/ \n\n" +
+                         "To sign up or edit your response: \n\n" +
+                         "tinyurl.com/ccttc-sign-up";
+                         
+  form.setConfirmationMessage(confirmation_msg);                    
+  var now = new Date();
+  var ss_id = form.getDestinationId();
+  if (!ss_id) { ss_id = RESPONSE_SPREADSHEET_ID; }
+  var ss = SpreadsheetApp.openById(ss_id);
+  
+  var skip_days = 6 - now.getDay();
+  skip_days = skip_days < 1 ? 7 : skip_days;
+  var next_sat = new Date(now.getTime());
+  next_sat.setDate(now.getDate() + skip_days);
+  
+  var options = {month: 'short'};
+  var new_date_str = `${new Intl.DateTimeFormat('en-US', options).format(next_sat)} ${next_sat.getDate()}, ${next_sat.getFullYear()}`;
+  var raw_sheet_name = 'Raw ' + new_date_str;
+  
+  form.setAcceptingResponses(true);
+  form.setConfirmationMessage(confirmation_msg);
+  form.deleteAllResponses();
+  
+  var attendanceQuestion = form.getItemById(598333706);
+  if (attendanceQuestion) {
+    var mcItem = attendanceQuestion.asMultipleChoiceItem();
+    mcItem.setChoiceValues(["Yes", "No"]);
+  }
+  
+  var sheet = ss.getSheetByName(raw_sheet_name);
+  if (sheet) {
+    Logger.log('Sheet ' + raw_sheet_name + ' already exists — skipping creation.');
+  } else {
+    try {
+      form.removeDestination();
+    } catch(e) {
+      Logger.log('Form was not linked or could not unlink: ' + e.message);
+    }
+    SpreadsheetApp.flush();
+    form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
+    SpreadsheetApp.flush();
+    
+    var allSheets = ss.getSheets();
+    var newlyLinkedSheet = null;
+    for (var s = 0; s < allSheets.length; s++) {
+      var sName = allSheets[s].getName();
+      if (sName.indexOf("Form Responses") !== -1 || sName.indexOf("Responses from Form") !== -1) {
+        newlyLinkedSheet = allSheets[s];
+        break;
+      }
+    }
+    if (!newlyLinkedSheet) {
+      newlyLinkedSheet = ss.getSheets();
+    }
+    newlyLinkedSheet.setName(raw_sheet_name);
+    newlyLinkedSheet.hideSheet();
+  }
+  
+  var statusPad = "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0";
+  var datePad   = "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0";
+  var boldStatusText = makeTextBoldUnicode("Registration OPEN");
+  var boldDateStr    = makeTextBoldUnicode(new_date_str);
+  var form_description = `${statusPad}${boldStatusText}\n${datePad}(${boldDateStr})`;
+  form.setDescription(form_description);
+  form.setConfirmationMessage(confirmation_msg);
+}
+
+function sendConfirmationEmail(e) {
+  try {
+    Utilities.sleep(1500);
+
+    var form = e.source || FormApp.getActiveForm();
+    var attendanceQuestionId = 598333706; 
+    var nameQuestionId = 1328240731;  
+    var emailQuestionId = 938680317; 
+    
+    var formResponse;
+    if (e && e.response) {
+      formResponse = e.response;
+    } else {
+      var latestResponses = form.getResponses();
+      if (!latestResponses || latestResponses.length === 0) return;
+      formResponse = latestResponses[latestResponses.length - 1];
+    }
+    
+    var itemResponses = formResponse.getItemResponses();
+    var playerName = "Player";
+    var playerEmail = "";
+    var playingStatus = "";
+    
+    for (var i = 0; i < itemResponses.length; i++) {
+      var item = itemResponses[i].getItem();
+      var id = item.getId();
+      var responseObj = itemResponses[i].getResponse();
+      var responseText = Array.isArray(responseObj) ? String(responseObj.join(', ') || '').trim() : String(responseObj || '').trim();
+      
+      if (id === attendanceQuestionId) {
+        playingStatus = responseText;
+      } else if (id === nameQuestionId) {
+        playerName = responseText;
+      } else if (id === emailQuestionId) {
+        playerEmail = responseText;
+      }
+    }
+    
+    playerEmail = playerEmail.trim();
+
+    if (playingStatus === "No") {
+      var subject = "League Play Sign-up Update: Not Attending";
+      var htmlBody = "<p>Hi " + playerName + ",</p><p>Your response has been updated. You are marked as <strong>Not Attending</strong> for this Saturday.</p><p>If you change your mind, you can use the original link to sign up again anytime slots are open.</p><p>CCTTC Automation System.</p>";
+                      
+      if (playerEmail && playerEmail.indexOf('@') !== -1) {
+        GmailApp.sendEmail(playerEmail, subject, "", { htmlBody: htmlBody, name: 'CCTTC Automation System' });
+      }
+    }
+
+    var allResponses = form.getResponses();
+    var trackedEmails = {};
+    var trackedNames = {};
+    var yesCount = 0;
+
+    for (var i = allResponses.length - 1; i >= 0; i--) {
+      var resp = allResponses[i];
+      var rItems = resp.getItemResponses();
+      var rEmail = "";
+      var rName = "";
+      var rStatus = "";
+      
+      for (var j = 0; j < rItems.length; j++) {
+        var qId = rItems[j].getItem().getId();
+        if (qId === emailQuestionId) {
+          rEmail = String(rItems[j].getResponse()).trim().toLowerCase();
+        } else if (qId === nameQuestionId) {
+          rName = String(rItems[j].getResponse()).trim().toLowerCase();
+        } else if (qId === attendanceQuestionId) {
+          rStatus = String(rItems[j].getResponse()).trim();
+        }
+      }
+      
+      var emailKey = rEmail || null;
+      var nameKey = rName || null;
+      
+      var alreadyTracked = false;
+      if (emailKey && (emailKey in trackedEmails)) alreadyTracked = true;
+      if (nameKey && (nameKey in trackedNames)) alreadyTracked = true;
+      
+      if (!alreadyTracked) {
+        if (emailKey) trackedEmails[emailKey] = rStatus;
+        if (nameKey) trackedNames[nameKey] = rStatus;
+        
+        if (rStatus === "Yes") {
+          yesCount++;
+        }
+      }
+    }
+
+    if (yesCount > 15 && playingStatus === "Yes") {
+      try {
+        form.deleteResponse(formResponse.getId());
+      } catch(fErr) {}
+      limitYesResponses(form, attendanceQuestionId, 15, emailQuestionId, playingStatus);
+      return; 
+    }
+
+    limitYesResponses(form, attendanceQuestionId, yesCount, emailQuestionId, playingStatus);
+
+    if (playingStatus === "No") return;
+    if (!playerEmail || playerEmail.indexOf('@') === -1) return;
+
+    var editResponseUrl = "";
+    try {
+      editResponseUrl = formResponse.getEditResponseUrl();
+    } catch(urlErr) {}
+
+    var subject = "League Play Sign-up Confirmation";
+    var htmlBody = "<p>Hi " + playerName + ",</p><p>Your response has been recorded for this Saturday's League Play at 9:00 - 11:45 a.m.<br>Doors open at 7:30 a.m.</p><p>• Attending: <strong>" + playingStatus + "</strong></p><p>Registered players: <a href='https://ccttcratings.github.io/portal'>View players</a></p>";
+                   
+    if (editResponseUrl) {
+      htmlBody += "<p>Need to change your status? <a href='" + editResponseUrl + "'>Edit your response</a></p>";
+    }
+    htmlBody += "<p>See you at the tables!<br>CCTTC Automation System.</p>";
+                   
+    GmailApp.sendEmail(playerEmail, subject, "", { htmlBody: htmlBody, name: 'CCTTC Automation System' });
+    
+  } catch(error) {}
+}
+
+function limitYesResponses(form, itemId, yesCount, emailQuestionId, playingStatus, e) {
+  var now = new Date();
+  var statusPad = "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0";
+  var datePad   = "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0";
+  
+  var skip_days_banner = 6 - now.getDay();
+  skip_days_banner = skip_days_banner < 1 ? 7 : skip_days_banner;
+  var next_sat_banner = new Date(now.getTime());
+  next_sat_banner.setDate(now.getDate() + skip_days_banner);
+  
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var new_date_str = months[next_sat_banner.getMonth()] + " " + next_sat_banner.getDate() + ", " + next_sat_banner.getFullYear();
+  var boldDateStr = makeTextBoldUnicode(new_date_str);
+
+  var attendanceQuestion = form.getItemById(itemId);
+  if (attendanceQuestion) {
+    var mcItem = attendanceQuestion.asMultipleChoiceItem();
+    
+    // Check if this submission is explicitly an EDIT from an existing user
+    var isFormalEdit = false;
+    if (e && e.response) {
+      try {
+        if (e.response.getEditResponseUrl()) {
+          isFormalEdit = true;
+        }
+      } catch(err) {}
+    }
+
+    // SMART ROUTING: Give formal editors the custom message, everyone else the safe universal layout
+    if (playingStatus === "No" && isFormalEdit) {
+      var boldUpdateText = makeTextBoldUnicode("Your attendance status has been updated!");
+      var boldAvailableText = makeTextBoldUnicode("Thank you for letting us know.");
+      var noMsg = "✔️ " + boldUpdateText + "\n\n" + boldAvailableText + "\nYour slot has been added back to the roster.";
+      form.setConfirmationMessage(noMsg);
+    } else {
+      var boldResponseText = makeTextBoldUnicode("Your response has been recorded!");
+      var boldPlayersText = makeTextBoldUnicode("Registered players:");
+      var boldSignUpText = makeTextBoldUnicode("To sign up or edit your response:");
+
+      var standardMsg = "✔️ " + boldResponseText + " \n\n" + 
+                        boldPlayersText + " \n\n" + 
+                        "ccttcratings.github.io/portal/ \n\n" + 
+                        boldSignUpText + " \n\n" + 
+                        "tinyurl.com/ccttc-sign-up";
+      form.setConfirmationMessage(standardMsg);
+    }
+
+    if (playingStatus === "No") {
+      SpreadsheetApp.flush();
+      Utilities.sleep(1500); 
+    }
+
+    if (yesCount >= 15) { 
+      mcItem.setChoiceValues(["No"]);
+      mcItem.setHelpText(" ");
+      var boldClosedText = makeTextBoldUnicode("Registration CLOSED");
+      var form_description_closed = `${statusPad}${boldClosedText}\n${datePad}(${boldDateStr})`;
+      form.setDescription(form_description_closed);
+    } else {
+      mcItem.setChoiceValues(["Yes", "No"]);
+      mcItem.setHelpText(" ");
+      var boldOpenText = makeTextBoldUnicode("Registration OPEN");
+      var form_description_open = `${statusPad}${boldOpenText}\n${datePad}(${boldDateStr})`;
+      form.setDescription(form_description_open);
+    }
+  }
+}
+
+  function makeTextBoldUnicode(plainText) {
+  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  var boldCharsArray = [
+    "𝗔","𝗕","𝗖","𝗗","𝗘","𝗙","𝗚","𝗛","𝗜","𝗝","𝗞","𝗟","𝗠","𝗡","𝗢","𝗣","𝗤","𝗥","𝗦","𝗧","𝗨","𝗩","𝗪","𝗫","𝗬","𝗭",
+    "𝗮","𝗯","𝗰","𝗱","𝗲","𝗳","𝗴","𝗵","𝗶","𝗷","𝗸","𝗹","𝗺","𝗻","𝗼","𝗽","𝗾","𝗿","𝘀","𝘁","𝘂","𝘃","𝘄","𝘅","𝘆","𝘇",
+    "𝟬","𝟭","𝟮","𝟯","𝟰","𝟱","𝟲","𝟳","𝟴","𝟵"
+  ];
+  var result = "";
+  for (var i = 0; i < plainText.length; i++) {
+    var charIdx = chars.indexOf(plainText[i]);
+    if (charIdx !== -1) { result += boldCharsArray[charIdx]; } 
+    else { result += plainText[i]; }
+  }
+  return result;
+}
