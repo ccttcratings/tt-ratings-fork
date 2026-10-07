@@ -1,6 +1,6 @@
 const RESPONSE_SPREADSHEET_ID = '1_Ou_wAKDovm5ASpc85cpGGbxKZcJkiEIEgifOE0ClBk';
 const MAIN_SPREADSHEET_ID = '1qKcKXmaVmOFZsXjNSIdBMhtCJOJmF4YaMUvbmAczvIc';
-const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com';
+const RECIPIENT_EMAIL = 'jddavid6409@yahoo.com, bryant@champaigntabletennis.com';
 const HEADER_ROW = 1;
 
 function sendSaturdayEmail() {
@@ -22,13 +22,13 @@ function sendSaturdayEmail() {
       }
     }
 
-    if (ratingsSheet) {
-      const ratingsData = ratingsSheet.getRange('A2:DC').getValues();
-      for (let i = 0; i < ratingsData.length; i++) {
-        addEmailLookup(ratingsData[i][103], ratingsData[i][2], ratingsData[i][1]);
-        addEmailLookup(ratingsData[i][106], ratingsData[i][2], ratingsData[i][1]);
-      }
-    }
+if (ratingsSheet) {
+  const ratingsData = ratingsSheet.getRange('A2:N').getValues();
+  for (let i = 0; i < ratingsData.length; i++) {
+    addEmailLookup(ratingsData[i][10], ratingsData[i][2], ratingsData[i][1]);
+    addEmailLookup(ratingsData[i][13], ratingsData[i][2], ratingsData[i][1]);
+  }
+}
 
     const targetSaturdayDate = getNextSaturday(new Date());
     const sheetName = formatDateForSheet(targetSaturdayDate);
