@@ -333,17 +333,24 @@ function tiebreaker(player_list) {
       var opponents = Object.keys(player.scores_w);
       for (var j = 0; j < opponents.length; j++) {
         var opponent = opponents[j];
-        if (player.scores_w[opponent]) {
-          games_won += player.scores_w[opponent].length;
-          points_won += player.scores_w[opponent].reduce((a, b) => a + b, 0);
-        }
-        if (player.scores_l[opponent]) {
-          games_lost += player.scores_l[opponent].length;
-          points_lost += player.scores_l[opponent].reduce((a, b) => a + b, 0);
+        
+        if (player.scores_w[opponent] && player.scores_l[opponent]) {
+          var p_scores = player.scores_w[opponent];
+          var o_scores = player.scores_l[opponent];
+          for (var k = 0; k < p_scores.length; k++) {
+            if (p_scores[k] > o_scores[k]) {
+              games_won++;
+            } else if (p_scores[k] < o_scores[k]) {
+              games_lost++;
+            }
+            points_won += p_scores[k];
+            points_lost += o_scores[k];
+          }
         }
       }
       var game_diff = games_won - games_lost;
       var point_diff = points_won - points_lost;
+
       Logger.log(player.name + ": " + games_won + " games won - " + games_lost + " games lost = " + game_diff + " differential");
       Logger.log("  Points: " + points_won + " won - " + points_lost + " lost = " + point_diff + " differential");
       game_diffs.push({
