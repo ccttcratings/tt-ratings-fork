@@ -235,68 +235,60 @@ if (ratingsSheet) {
   }
 
 function createDisplayTab() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var templateSheet = ss.getSheetByName('Template');
-  
-  // 1. Resolve and clear or create your new output display sheet
-  var displaySheet = ss.getSheetByName('Display');
-  if (displaySheet) {
-    displaySheet.clear();
-  } else {
-    displaySheet = ss.insertSheet('Display');
-  }
-  
-  // 2. Load the template values to find where players end and the footer begins
-  var lastRow = templateSheet.getLastRow();
-  var templateValues = templateSheet.getRange(1, 1, lastRow, templateSheet.getLastColumn()).getValues();
-  
-  var playerRowsCount = 0;
-  for (var i = 0; i < templateValues.length; i++) {
-    // Row tracking for loops uses index 0. Row index 6 points directly to Column G.
-    if (templateValues[i][6] === "League Results" || String(templateValues[i][6]).indexOf("HYPERLINK") !== -1) {
-      break; // Found the updated hyperlink row anchor text in Column G!
+  try {
+    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    var template = ss.getSheetByName('Template');
+    if (!template) {
+      throw new Error('Template tab not found in sign-up spreadsheet');
     }
-    // Assume valid player row if Column D (Index 3) has an initial signup number
-    if (i >= 4 && templateValues[i][3] !== "") { 
-      playerRowsCount++;
-    }
-  }
-  
-  // 3. Extract and map player entries (Row 5 down to the end of player data)
-  var playerDataRange = templateSheet.getRange(5, 1, playerRowsCount, templateSheet.getLastColumn());
-  var playerValues = playerDataRange.getValues();
-  var cleanDisplayData = [];
-  
-  for (var p = 0; p < playerValues.length; p++) {
-    var row = playerValues[p];
-    var currentNum  = row[3]; // Column D (Index 3) - Remains unchanged
-    var currentName = row[6]; // REMAP: Shifted from Index 4 (Column E) to Index 6 (Column G)
+
+    // Get the upcoming Saturday and calculate the previous Saturday (7 days prior)
+    var nextSat = getNextSaturday(new Date());
+    var prevSat = new Date(nextSat.getTime() - 7 * 24 * 60 * 60 * 1000); // minus 7 days
     
-    // Build your display array template mapping structure
-    cleanDisplayData.push([currentNum, "", "", currentName]);
+    var displayName = formatDateForSheet(nextSat);
+    var prevDisplayName = formatDateForSheet(prevSat);
+    var prevRawName = 'Raw ' + prevDisplayName;
+
+    // Check if the display tab already exists. If it does, stop early.
+    if (ss.getSheetByName(displayName)) {
+      Logger.log('Display tab "' + displayName + '" already exists - skipping.');
+      return;
+    }
+
+    // 1. CREATE THE NEW TAB FIRST
+    // This ensures there is always an extra visible sheet, preventing the crash.
+    var copy = template.copyTo(ss);
+    copy.setName(displayName).showSheet();
+    ss.setActiveSheet(copy);
+    ss.moveActiveSheet(0);
+    Logger.log('Created display tab "' + displayName + '" from Template.');
+
+    // 2. CLEAN UP OLD DISPLAY TAB
+    var prevDisplaySheet = ss.getSheetByName(prevDisplayName);
+    if (prevDisplaySheet) {
+      ss.deleteSheet(prevDisplaySheet);
+      Logger.log('Deleted previous week display tab: ' + prevDisplayName);
+    }
+
+    // 3. SMART CLEANUP: Only delete the old Raw tab if the new week's Raw tab is ready.
+    // This protects your active form destination link if scripts run out of order on Sundays.
+    var currentRawSheetName = 'Raw ' + displayName;
+    var currentRawSheetExists = ss.getSheetByName(currentRawSheetName);
+    
+    if (currentRawSheetExists) {
+      var prevRawSheet = ss.getSheetByName(prevRawName);
+      if (prevRawSheet) {
+        ss.deleteSheet(prevRawSheet);
+        Logger.log('Deleted previous week raw tab: ' + prevRawName);
+      }
+    } else {
+      Logger.log('New Raw tab "' + currentRawSheetName + '" not found yet. Postponing old Raw tab deletion to preserve form connection.');
+    }
+
+  } catch (error) {
+    sendErrorEmail('Error in createDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
   }
-  
-  // 4. Output the clean player data grid onto the Display tab
-  if (cleanDisplayData.length > 0) {
-    displaySheet.getRange(5, 4, cleanDisplayData.length, 4).setValues(cleanDisplayData);
-    // Copy the original text block/borders from the player block rows
-    templateSheet.getRange(5, 1, cleanDisplayData.length, templateSheet.getLastColumn())
-                 .copyTo(displaySheet.getRange(5, 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-  }
-  
-  // 5. REMAP: Copy the expanded 7-row footer (Rows 6-12) from the template 
-  var footerTargetStartRow = 5 + cleanDisplayData.length;
-  
-  // Parameter 3 changed from 3 to 7 to safely hold rows 6, 7, 8, 9, 10, 11, and 12
-  var footerSourceRange = templateSheet.getRange(6, 1, 7, templateSheet.getLastColumn());
-  var footerTargetRange = displaySheet.getRange(footerTargetStartRow, 1, 7, templateSheet.getLastColumn());
-  
-  footerSourceRange.copyTo(footerTargetRange, SpreadsheetApp.CopyPasteType.PASTE_ALL, false);
-  
-  // 6. REMAP: Inject the exact League Results Hyperlink formula dynamically into Cell G8 of the new footer area
-  // Row 8 on the footer block corresponds to (footerTargetStartRow + 2). Column G is 7.
-  var hyperlinkCell = displaySheet.getRange(footerTargetStartRow + 2, 7);
-  hyperlinkCell.setFormula('=HYPERLINK("https://ccttcratings.com", "League Results")');
 }
 
 function populateDisplayTab() {
@@ -409,23 +401,13 @@ function populateDisplayTab() {
 
 function findFooterRow(sheet, fromRow) {
   var lastRow = sheet.getLastRow();
-  if (lastRow < fromRow) return null;
-
-  // FIX: Pull ALL remaining rows into memory with ONE single API request
-  var numRowsToScan = lastRow - fromRow + 1;
-  var allValues = sheet.getRange(fromRow, 1, numRowsToScan, sheet.getLastColumn()).getValues();
-
-  for (var i = 0; i < allValues.length; i++) {
-    var rowValues = allValues[i];
-    
-    // Scan across the cells of this row in memory
-    for (var c = 0; c < rowValues.length; c++) {
-      var v = String(rowValues[c] || '').toLowerCase();
-      
-      // Matches your newly configured hyperlink cell text natively
+  for (var r = fromRow; r <= lastRow; r++) {
+    var vals = sheet.getRange(r, 1, 1, sheet.getLastColumn()).getValues()[0];
+    for (var c = 0; c < vals.length; c++) {
+      var v = String(vals[c] || '').toLowerCase();
+      // UPDATED LOOKUP STRING: Matches your newly configured hyperlink cell text natively
       if (v.indexOf('league results') !== -1 || v.indexOf('results') !== -1) {
-        // Calculate the actual sheet row number (fromRow + current array loop position)
-        return fromRow + i;
+        return r;
       }
     }
   }
@@ -464,35 +446,37 @@ function refreshDisplayTab() {
   }
 }
 
-function formatDisplayRows(sheet, startRow, numRows) {
-  if (numRows <= 0) return;
-  
-  // 1. Format the Core Player Entry Area (Columns D through I | Column 4 to 9)
-  var primaryDataRange = sheet.getRange(startRow, 4, numRows, 6);
-  primaryDataRange.setBackground('#ffffff');
-  primaryDataRange.setFontColor('#000000');
-  primaryDataRange.setHorizontalAlignment('center');
-  primaryDataRange.setBorder(true, true, true, true, true, true, '#cccccc', SpreadsheetApp.BorderStyle.SOLID);
-  
-  // 2. Format Column J (Column 10): Color #dad3bc + Thick Left/Right Borders
-  var rangeJ = sheet.getRange(startRow, 10, numRows, 1);
-  rangeJ.setBackground('#dad3bc');
-  rangeJ.setHorizontalAlignment('center');
-  // setBorder parameters: top, left, bottom, right, vertical, horizontal, color, style
-  // Applies standard top/bottom/inner grid borders, but forces thick left and right walls
-  rangeJ.setBorder(true, true, true, true, false, true, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-  
-  // 3. Format Column K (Column 11): Color #b3ab8d + Thick Left/Right Borders
-  var rangeK = sheet.getRange(startRow, 11, numRows, 1);
-  rangeK.setBackground('#b3ab8d');
-  rangeK.setHorizontalAlignment('center');
-  rangeK.setBorder(true, true, true, true, false, true, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-  
-  // 4. Format Column L (Column 12): Color #d9ead3 + Standard Grid Borders
-  var rangeL = sheet.getRange(startRow, 12, numRows, 1);
-  rangeL.setBackground('#d9ead3');
-  rangeL.setHorizontalAlignment('center');
-  rangeL.setBorder(true, true, true, true, true, true, '#cccccc', SpreadsheetApp.BorderStyle.SOLID);
+function formatDisplayRows(display, playerCount) {
+  try {
+    if (!playerCount || playerCount < 1) return;
+    var lastRow = 5 + playerCount;
+    var black = '#000000';
+    var thin = SpreadsheetApp.BorderStyle.SOLID_THIN;
+    var thick = SpreadsheetApp.BorderStyle.SOLID_THICK;
+
+    for (var r = 6; r <= lastRow; r++) {
+      var alt = ((r - 6) % 2 === 0) ? '#ffffff' : '#d9d9d9';
+      
+      display.getRange(r, 4, 1, 2).setFontFamily('Roboto').setFontSize(11).setFontWeight('bold').setFontColor(black);
+      
+      var numCell = display.getRange(r, 4);
+      numCell.setBackground(alt);
+      numCell.setBorder(true, null, null, null, false, false, black, thin);
+      numCell.setHorizontalAlignment('center').setVerticalAlignment('middle');
+      
+      var nameCell = display.getRange(r, 5);
+      nameCell.setBackground(alt);
+      nameCell.setBorder(true, true, null, true, false, false, black, thin);
+      nameCell.setBorder(null, null, null, true, false, false, black, thick);
+      nameCell.setHorizontalAlignment('left').setVerticalAlignment('middle');
+
+      display.setRowHeight(r, 30);
+    } 
+    
+    display.getRange(5, 4, 1, 2).setBorder(null, null, true, null, false, false, black, thick);
+  } catch (error) {
+    sendErrorEmail('Error in formatDisplayRows: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  }
 }
 
 /**
