@@ -222,80 +222,57 @@ if (ratingsSheet) {
   }
 }
 
-  function formatDateForSheet(date) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-  }
+function formatDateForSheet(date) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
 
-  function getNextSaturday(date) {
-    var skipDays = (6 - date.getDay() + 7) % 7;
-    var nextSat = new Date(date.getTime());
-    nextSat.setDate(date.getDate() + skipDays);
-    return nextSat;
-  }
+function getNextSaturday(date) {
+  var skipDays = (6 - date.getDay() + 7) % 7;
+  var nextSat = new Date(date.getTime());
+  nextSat.setDate(date.getDate() + skipDays);
+  return nextSat;
+}
 
 function createDisplayTab() {
-  try {
-    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
-    var template = ss.getSheetByName('Template');
-    if (!template) {
-      throw new Error('Template tab not found in sign-up spreadsheet');
-    }
-
-    // Get the upcoming Saturday and calculate the previous Saturday (7 days prior)
-    var nextSat = getNextSaturday(new Date());
-    var prevSat = new Date(nextSat.getTime() - 7 * 24 * 60 * 60 * 1000); // minus 7 days
-    
-    var displayName = formatDateForSheet(nextSat);
-    var prevDisplayName = formatDateForSheet(prevSat);
-    var prevRawName = 'Raw ' + prevDisplayName;
-
-    // Check if the display tab already exists. If it does, stop early.
-    if (ss.getSheetByName(displayName)) {
-      Logger.log('Display tab "' + displayName + '" already exists - skipping.');
-      return;
-    }
-
-    // 1. CREATE THE NEW TAB FIRST
-    // This ensures there is always an extra visible sheet, preventing the crash.
-    var copy = template.copyTo(ss);
-    copy.setName(displayName).showSheet();
-    ss.setActiveSheet(copy);
-    ss.moveActiveSheet(0);
-    Logger.log('Created display tab "' + displayName + '" from Template.');
-
-    // 2. CLEAN UP OLD DISPLAY TAB
-    var prevDisplaySheet = ss.getSheetByName(prevDisplayName);
-    if (prevDisplaySheet) {
-      ss.deleteSheet(prevDisplaySheet);
-      Logger.log('Deleted previous week display tab: ' + prevDisplayName);
-    }
-
-    // 3. SMART CLEANUP: Only delete the old Raw tab if the new week's Raw tab is ready.
-    // This protects your active form destination link if scripts run out of order on Sundays.
-    var currentRawSheetName = 'Raw ' + displayName;
-    var currentRawSheetExists = ss.getSheetByName(currentRawSheetName);
-    
-    if (currentRawSheetExists) {
-      var prevRawSheet = ss.getSheetByName(prevRawName);
-      if (prevRawSheet) {
-        ss.deleteSheet(prevRawSheet);
-        Logger.log('Deleted previous week raw tab: ' + prevRawName);
-      }
-    } else {
-      Logger.log('New Raw tab "' + currentRawSheetName + '" not found yet. Postponing old Raw tab deletion to preserve form connection.');
-    }
-
-  } catch (error) {
-    sendErrorEmail('Error in createDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var templateSheet = ss.getSheetByName('Template');
+  
+  if (!templateSheet) {
+    SpreadsheetApp.getUi().alert('Template sheet not found!');
+    return;
   }
+  
+  var displayName = formatDateForSheet(getNextSaturday(new Date()));
+  var oldSheet = ss.getSheetByName(displayName);
+  
+  // FIX: If the weekly display tab already exists, stop right here! 
+  // Do NOT copy the template again, and do NOT delete the active sheet.
+  if (oldSheet) {
+    Logger.log('Display tab "' + displayName + '" already exists - skipping template duplication.');
+    return;
+  }
+  
+  // This section only executes once on a fresh week setup pass
+  var displaySheet = templateSheet.copyTo(ss);
+  displaySheet.setName(displayName);
+  displaySheet.showSheet();
+  
+  ss.setActiveSheet(displaySheet);
+  ss.moveActiveSheet(5);
+  
+  ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
+    displaySheet.getRange(r).setNumberFormat("@");
+  });
 }
 
 function populateDisplayTab() {
   try {
-    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+    var responseDb = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
     var displayName = formatDateForSheet(getNextSaturday(new Date()));
-    var rawSheet = ss.getSheetByName('Raw ' + displayName);
+    var rawSheet = responseDb.getSheetByName('Raw ' + displayName);
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var display = ss.getSheetByName(displayName);
 
     if (!rawSheet) {
@@ -305,14 +282,16 @@ function populateDisplayTab() {
       throw new Error('Display tab "' + displayName + '" not found - run createDisplayTab() first.');
     }
 
-    var rawLastRow = rawSheet.getLastRow();
+    SpreadsheetApp.flush();
+
+    var rawDataMatrix = rawSheet.getDataRange().getValues();
+    var rawLastRow = rawDataMatrix.length;
     if (rawLastRow < 2) {
       Logger.log('No responses in "Raw ' + displayName + '" yet.');
       return 0;
     }
-    
-    var rawLastCol = rawSheet.getLastColumn();
-    var headers = rawSheet.getRange(1, 1, 1, rawLastCol).getValues()[0];
+
+    var headers = rawDataMatrix;
     var nameIdx = -1;
     var playingIdx = -1;
     var emailIdx = -1;
@@ -327,12 +306,12 @@ function populateDisplayTab() {
         emailIdx = c;
       }
     }
-    
+  
     if (nameIdx === -1) { nameIdx = 1; }
     if (playingIdx === -1) { playingIdx = 3; }
     if (emailIdx === -1) { emailIdx = 2; }
 
-    var dataRows = rawSheet.getRange(2, 1, rawLastRow - 1, rawLastCol).getValues();
+    var dataRows = rawDataMatrix.slice(1);
     var players = [];
     var trackedEmails = {};
     var trackedNames = {};
@@ -355,46 +334,50 @@ function populateDisplayTab() {
         trackedNames[nameKey] = playingStatus;
         
         if (playingStatus === 'yes') {
-          var paddedName = "\u00A0\u00A0\u00A0" + name;
-          players.unshift([paddedName]);
+          players.unshift(name); 
         }
       }
     }
 
-    var organizedPlayers = [];
-    for (var p = 0; p < players.length; p++) {
-      var rowNumberStr = (p + 1) + ".";
-      organizedPlayers.push([rowNumberStr, players[p]]);
-    }
-
-    if (organizedPlayers.length === 0) {
-      var footerRowEmpty = findFooterRow(display, 6);
-      if (footerRowEmpty && footerRowEmpty > 6) {
-        display.getRange(6, 4, footerRowEmpty - 6, 2).clearContent();
-        display.deleteRows(6, footerRowEmpty - 6);
-      }
-      Logger.log('No valid players to populate.');
-      return 0;
-    }
-
+    // Precision check to establish exactly where the footer is right now
     var footerRow = findFooterRow(display, 6);
     if (!footerRow) {
       throw new Error('Footer row not found on display tab "' + displayName + '".');
     }
 
+    if (players.length === 0) {
+      Logger.log('No valid players to populate. Template left as is.');
+      return 0;
+    }
+    
+    // 1. SURGICAL CLEAR: Wipes out text down columns D through G exactly inside the active player area
     if (footerRow > 6) {
-      display.getRange(6, 4, footerRow - 6, 2).clearContent();
+      display.getRange(6, 4, footerRow - 6, 4).clearContent();
+      
+      // 2. COUNTER-BALANCE RESET: Deletes old tracks to bring the footer right back to home baseline row 6
       display.deleteRows(6, footerRow - 6);
     }
     
-    display.insertRows(6, organizedPlayers.length);
-    display.getRange(6, 4, organizedPlayers.length, 2).clearContent();
-    display.getRange(6, 4, organizedPlayers.length, 2).setValues(organizedPlayers);
+    // 3. FRESH ROW INSERTION: Opens up the exact row count matching your active signup records cleanly
+    display.insertRows(6, players.length);
     
-    Logger.log('Populated "' + displayName + '" with ' + organizedPlayers.length + ' players.');
-    return organizedPlayers.length;
+    var organizedNumbers = [];
+    var organizedNames = [];
+    for (var p = 0; p < players.length; p++) {
+      var rowNumberStr = (p + 1) + ".";
+      organizedNumbers.push([rowNumberStr]);
+      organizedNames.push([players[p]]);
+    }
+    
+    // 4. ISOLATED DOUBLE-PASS WRITE: Numbers go to D, Names go straight to G
+    display.getRange(6, 4, players.length, 1).setValues(organizedNumbers); // Column D (4)
+    display.getRange(6, 7, players.length, 1).setValues(organizedNames);   // Column G (7)
+    
+    SpreadsheetApp.flush();
+    Logger.log('Populated "' + displayName + '" with ' + players.length + ' players.');
+    return players.length;
   } catch (error) {
-    sendErrorEmail('Error in populateDisplayTab: ' + error.toString() + '\n\nStack trace: ' + error.stack);
+    sendErrorEmail('Error in populateDisplayTab: ' + error.toString());
     return 0;
   }
 }
@@ -402,10 +385,9 @@ function populateDisplayTab() {
 function findFooterRow(sheet, fromRow) {
   var lastRow = sheet.getLastRow();
   for (var r = fromRow; r <= lastRow; r++) {
-    var vals = sheet.getRange(r, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var vals = sheet.getRange(r, 1, 1, sheet.getLastColumn()).getDisplayValues();
     for (var c = 0; c < vals.length; c++) {
       var v = String(vals[c] || '').toLowerCase();
-      // UPDATED LOOKUP STRING: Matches your newly configured hyperlink cell text natively
       if (v.indexOf('league results') !== -1 || v.indexOf('results') !== -1) {
         return r;
       }
@@ -423,24 +405,17 @@ function handleLiveFormSubmission(e) {
 }
 
 function refreshDisplayTab() {
-  // 1. Give the form engine time to safely commit the data row
   Utilities.sleep(2000);
   SpreadsheetApp.flush();
   
-  // 2. Calculate the TARGET sheet name EXACTLY ONCE up front
   var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
   var displayName = formatDateForSheet(getNextSaturday(new Date()));
   
-  // 3. Run your creation setup
   createDisplayTab();
   
-  // 4. Run population
   var playerCount = populateDisplayTab();
-  
-  // 5. Target the explicit display tab directly without re-calculating the date string
   var display = ss.getSheetByName(displayName);
   
-  // 6. Format only if the target sheet is verified and has players
   if (display && playerCount > 0) {
     formatDisplayRows(display, playerCount);
   }
@@ -457,31 +432,60 @@ function formatDisplayRows(display, playerCount) {
     for (var r = 6; r <= lastRow; r++) {
       var alt = ((r - 6) % 2 === 0) ? '#ffffff' : '#d9d9d9';
       
-      display.getRange(r, 4, 1, 2).setFontFamily('Roboto').setFontSize(11).setFontWeight('bold').setFontColor(black);
+      // 1. Paint background colors and fonts across ALL 6 table columns (D through I)
+      var entireRowDataRange = display.getRange(r, 4, 1, 6);
+      entireRowDataRange.setBackground(alt).setFontFamily('Roboto').setFontSize(11).setFontWeight('bold').setFontColor(black);
       
+      // 2. Draw uniform thin horizontal dividers row-by-row across columns D through I
+      entireRowDataRange.setBorder(true, null, true, null, false, null, black, thin);
+      
+      // 3. C column
+      display.getRange(r, 3).setBorder(null, null, null, true, null, null, black, thick);
+      
+      // 4. COLUMN D (Numbers): Center text, thick left wall, thin right divider line
       var numCell = display.getRange(r, 4);
-      numCell.setBackground(alt);
-      numCell.setBorder(true, null, null, null, false, false, black, thin);
+      numCell.setBorder(null, null, null, true, null, null, black, thin); // Set thin vertical tracks
+      numCell.setBorder(true, null, null, null, null, null, black, thin); // FIX: Explicitly redraw top thin horizontal line over the thick corner clip!
       numCell.setHorizontalAlignment('center').setVerticalAlignment('middle');
       
-      var nameCell = display.getRange(r, 5);
-      nameCell.setBackground(alt);
-      nameCell.setBorder(true, true, null, true, false, false, black, thin);
-      nameCell.setBorder(null, null, null, true, false, false, black, thick);
+      // 5. COLUMN E (Padding): Draw thin left border to securely lock the vertical D/E divider wall
+      var paddingCell = display.getRange(r, 5);
+      paddingCell.setBorder(true, true, null, null, null, null, black, thin);
+      
+      // 7. COLUMN F (Padding): Draw top thin border line only
+      var paddingCell2 = display.getRange(r, 6);
+      paddingCell2.setBorder(true, null, null, null, null, null, black, thin);
+      
+      // 7. COLUMN G (Names): Left-align text with top thin border line only (NO side borders!)
+      var nameCell = display.getRange(r, 7);
+      nameCell.setBorder(true, null, null, null, null, null, black, thin);
       nameCell.setHorizontalAlignment('left').setVerticalAlignment('middle');
+      
+      // 8. COLUMN H (Blank track): Draw top thin border line only
+      display.getRange(r, 8).setBorder(true, null, null, null, null, null, black, thin);
+      
+      // 9. COLUMN I (Outer edge): Draw top thin border and thick outer right wall (the line left of column J)
+      var edgeCell = display.getRange(r, 9);
+      // FIX: Hardcoded bottom parameter to false here so individual mid-list player rows never force a thick underline!
+      edgeCell.setBorder(true, null, true, null, null, null, black, thin);
+      edgeCell.setBorder(null, null, null, true, null, null, black, thick);
+
+      // 10. BOTTOM FRAME SEAL: Layer a heavy horizontal baseline ONLY on the final player row pass right above the footer
+      if (r === lastRow) {
+        display.getRange(r, 4, 1, 6).setBorder(null, null, true, null, null, null, black, thick);
+      }
 
       display.setRowHeight(r, 30);
     } 
     
-    display.getRange(5, 4, 1, 2).setBorder(null, null, true, null, false, false, black, thick);
+    // Top border alignment to frame the table header space cleanly across columns D through I
+    display.getRange(5, 4, 1, 6).setBorder(null, null, true, null, null, null, black, thick);
+    
   } catch (error) {
     sendErrorEmail('Error in formatDisplayRows: ' + error.toString() + '\n\nStack trace: ' + error.stack);
   }
 }
 
-/**
- * Global Utility Error Function: Accessible by all spreadsheet tracking buttons
- */
 function sendErrorEmail(errorMessage) {
   try {
     GmailApp.sendEmail(
