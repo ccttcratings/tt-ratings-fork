@@ -235,7 +235,7 @@ function getNextSaturday(date) {
 }
 
 function createDisplayTab() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
   var templateSheet = ss.getSheetByName('Template');
   
   if (!templateSheet) {
@@ -272,7 +272,7 @@ function populateDisplayTab() {
     var displayName = formatDateForSheet(getNextSaturday(new Date()));
     var rawSheet = responseDb.getSheetByName('Raw ' + displayName);
     
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
     var display = ss.getSheetByName(displayName);
 
     if (!rawSheet) {
