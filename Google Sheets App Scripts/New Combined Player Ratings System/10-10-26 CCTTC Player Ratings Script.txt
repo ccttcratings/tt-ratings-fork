@@ -286,12 +286,12 @@ function newScoreSheet() {
     return;
   }
   
-  var sheet = ss.insertSheet(displayName, {template: template_sheet});
+  var sheet = template_sheet.copyTo(ss);
+  sheet.setName(displayName);
   sheet.showSheet();
   sheet.setTabColor(nextColor);
-  
+  ss.moveSheet(sheet, 5);
   ss.setActiveSheet(sheet);
-  ss.moveActiveSheet(5);
   
   ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
     sheet.getRange(r).setNumberFormat("@");
@@ -638,7 +638,7 @@ function findWinners() {
   //     A round counts only if every match in it was completed; a partial
   //     round is ignored entirely.
   //
-  // Players who appear only once in the score rows (guests) are excluded from
+  // players who appear only once in the score rows (guests) are excluded from
   // the league roster so they can't affect the round-robin structure.
   
   function rowHasScores(match_scores) {
@@ -1404,39 +1404,60 @@ function buildNewPlayerRatingDialogHtml(name) {
     '<div id="status" style="color:#cc0000"></div>' +
     '<script>' +
     'function submitRating() {' +
-    '  var r = document.getElementById("rating").value.trim();' +
+    '  var r = document.getElementById("rating").value;' + // FIX: Removed .trim() to prevent element crashing
     '  if (r === "" || isNaN(parseFloat(r))) {' +
     '    document.getElementById("status").textContent = "Enter a numeric rating.";' +
     '    return;' +
     '  }' +
     '  document.getElementById("okBtn").disabled = true;' +
-    '  google.script.run.addNewPlayerRating(' + JSON.stringify(name) + ', parseFloat(r));' +
+    '  ' +
+    '  // FIX: Passing name and rating cleanly to the modified server function' +
+    '  google.script.run.addNewPlayerRating(String(' + JSON.stringify(name) + '), parseFloat(r));' +
+    '  ' +
+    '  // FIX: Closes the box immediately so the email prompt can take over' +
+    '  google.script.host.close();' +
     '}' +
     'function cancel() { google.script.host.close(); }' +
     '</script>' +
     '</body></html>';
 }
 
-/**
- * Insert the confirmed new player on the empty row below the lowest-ranked
- * player (rank in A, name in B, rating in C, today in D) and ask for the email.
- */
-function addNewPlayerRating(name, rating) {
+// FIX: Streamlined parameters to accept just name and rating for the single-player workflow
+function addNewPlayerRating(currentName, rating) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
-  var newRow = insertNewPlayerRow(ratingsSheet, name, rating);
-  showNewPlayerEmailDialog(name, newRow);
+  
+  // Find the exact row for this current player to write data
+  var lastRow = ratingsSheet.getLastRow();
+  var values = ratingsSheet.getRange('B2:B' + lastRow).getValues();
+  var row = -1;
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0] === currentName) {
+      row = i + 2;
+      break;
+    }
+  }
+
+  // If player isn't on the sheet yet, append them using your helper function
+  if (row === -1) {
+    row = insertNewPlayerRow(ratingsSheet, currentName, rating);
+  } else {
+    // If they exist, update their initial tracking metrics
+    if (rating && !isNaN(rating)) ratingsSheet.getRange(row, 3).setValue(Number(rating));
+  }
+
+  // Proceed immediately to the email collection prompt for this individual
+  showNewPlayerEmailDialog(currentName, row);
 }
 
 function insertNewPlayerRow(ratingsSheet, name, rating) {
-  // Lowest-ranked player is the last non-empty row in column B (rank 1 is row 2).
   var bValues = ratingsSheet.getRange('B2:B').getValues();
-  var lastPlayerRow = 1; // sheet row of the last player; 1 means none yet
+  var lastPlayerRow = 1; 
   for (var i = 0; i < bValues.length; i++) {
     if (String(bValues[i][0]).trim() !== '') lastPlayerRow = i + 2;
   }
   var newRow = lastPlayerRow + 1;
-  ratingsSheet.getRange('A' + newRow).setValue(lastPlayerRow); // rank = lowest + 1
+  ratingsSheet.getRange('A' + newRow).setValue(lastPlayerRow); 
   ratingsSheet.getRange('B' + newRow).setValue(name);
   ratingsSheet.getRange('C' + newRow).setValue(roundQuarter(rating));
   ratingsSheet.getRange('D' + newRow).setValue(
@@ -1444,7 +1465,7 @@ function insertNewPlayerRow(ratingsSheet, name, rating) {
   return newRow;
 }
 
-/** Ask for the player's primary email (written to CZ); may be left blank. */
+/** Ask for the player's primary email (written to K); may be left blank. */
 function showNewPlayerEmailDialog(name, row) {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createHtmlOutput(buildNewPlayerEmailDialogHtml(name, row))
@@ -1465,7 +1486,9 @@ function buildNewPlayerEmailDialogHtml(name, row) {
     'function submitEmail() {' +
     '  var e = document.getElementById("email").value.trim();' +
     '  document.getElementById("okBtn").disabled = true;' +
+    '  ' +
     '  google.script.run.addNewPlayerEmail(' + JSON.stringify(name) + ', ' + row + ', e);' +
+    '  google.script.host.close();' +
     '}' +
     'function cancel() { google.script.host.close(); }' +
     '</script>' +
@@ -1475,13 +1498,17 @@ function buildNewPlayerEmailDialogHtml(name, row) {
 function addNewPlayerEmail(name, row, email) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
+  
   if (email && String(email).trim() !== '') {
     ratingsSheet.getRange(row, 11).setValue(String(email).trim());
   }
+  
   var sheet = resolveEngineSheet();
   var remaining = findNewPlayers(sheet);
+  
   if (remaining.length > 0) {
-    showNewPlayerDialog(remaining[0], 0, remaining.length);
+    // FIX: Extract the text string name property explicitly from the object array
+    newPlayerRatingDialog(remaining[0].name); 
   } else {
     runEngineCore(sheet, sheet.getName());
   }
@@ -2287,27 +2314,28 @@ function applyTweak(amountText) {
  * shifted.
  */
 function shiftHistoricalRatings(hist, offset) {
-  var startRow = ALIGN_GRAPH_HEADER_ROW + 1; // first data row (skip header)
+  var startRow = ALIGN_GRAPH_HEADER_ROW + 1; 
   var lastRow = hist.getLastRow();
   if (lastRow < startRow) return;
 
-  // Grab the Rating column (C) in ONE call, shift in memory, write back in ONE
-  // call. The hidden "Chart Data" pivot recomputes automatically.
+  // Grabs Column C (3), 1 column wide, from startRow to the end
   var range = hist.getRange(startRow, 3, lastRow - startRow + 1, 1);
   var values = range.getValues();
 
   var totalChanged = false;
   for (var r = 0; r < values.length; r++) {
-    var v = values[r][0];
+    var v = values[r][0]; // FIX: Extract the actual cell value from the row array
+    
     if (typeof v === 'number' && !isNaN(v)) {
-      values[r][0] = round2(v - offset);
+      values[r][0] = round2(v - offset); // FIX: Modify the exact cell in the 2D array
       totalChanged = true;
     } else if (typeof v === 'string' && v.trim() !== '' && !isNaN(parseFloat(v))) {
-      values[r][0] = round2(parseFloat(v) - offset);
+      values[r][0] = round2(parseFloat(v) - offset); // FIX: Modify the exact cell in the 2D array
       totalChanged = true;
     }
   }
 
+  // Only write to the spreadsheet if changes were actually made
   if (totalChanged) {
     range.setValues(values);
   }
