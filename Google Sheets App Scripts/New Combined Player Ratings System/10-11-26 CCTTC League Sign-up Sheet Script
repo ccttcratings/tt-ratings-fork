@@ -126,7 +126,7 @@ if (ratingsSheet) {
     const lastPlayerRow = footerRow ? footerRow - 1 : displaySheet.getLastRow();
     
     if (lastPlayerRow >= 6) {
-      const displayNames = displaySheet.getRange(6, 5, lastPlayerRow - 6 + 1, 1).getValues();
+      const displayNames = displaySheet.getRange(6, 6, lastPlayerRow - 6 + 1, 1).getValues();
       
       for (let i = 0; i < displayNames.length; i++) {
         const cleanName = String(displayNames[i]).replace(/\u00A0/g, '').trim();
@@ -369,9 +369,9 @@ function populateDisplayTab() {
       organizedNames.push([players[p]]);
     }
     
-    // 4. ISOLATED DOUBLE-PASS WRITE: Numbers go to D, Names go straight to G
+    // 4. ISOLATED DOUBLE-PASS WRITE: Numbers go to D, Names go straight to F
     display.getRange(6, 4, players.length, 1).setValues(organizedNumbers); // Column D (4)
-    display.getRange(6, 7, players.length, 1).setValues(organizedNames);   // Column G (7)
+    display.getRange(6, 6, players.length, 1).setValues(organizedNames);   // Column F (6)
     
     SpreadsheetApp.flush();
     Logger.log('Populated "' + displayName + '" with ' + players.length + ' players.');
@@ -439,7 +439,7 @@ function formatDisplayRows(display, playerCount) {
       // 2. Draw uniform thin horizontal dividers row-by-row across columns D through I
       entireRowDataRange.setBorder(true, null, true, null, false, null, black, thin);
       
-      // 3. C column
+      // 3. COLUMN C
       display.getRange(r, 3).setBorder(null, null, null, true, null, null, black, thick);
       
       // 4. COLUMN D (Numbers): Center text, thick left wall, thin right divider line
@@ -452,21 +452,18 @@ function formatDisplayRows(display, playerCount) {
       var paddingCell = display.getRange(r, 5);
       paddingCell.setBorder(true, true, null, null, null, null, black, thin);
       
-      // 7. COLUMN F (Padding): Draw top thin border line only
-      var paddingCell2 = display.getRange(r, 6);
-      paddingCell2.setBorder(true, null, null, null, null, null, black, thin);
+      // 6. DYNAMIC MERGE: Bind Columns F, G, H, and I cleanly across the row width of 4
+      var nameMergeRange = display.getRange(r, 6, 1, 4); 
+      if (!nameMergeRange.isPartOfMerge()) {
+        nameMergeRange.mergeAcross();
+      }
       
-      // 7. COLUMN G (Names): Left-align text with top thin border line only (NO side borders!)
-      var nameCell = display.getRange(r, 7);
-      nameCell.setBorder(true, null, null, null, null, null, black, thin);
-      nameCell.setHorizontalAlignment('left').setVerticalAlignment('middle');
-      
-      // 8. COLUMN H (Blank track): Draw top thin border line only
-      display.getRange(r, 8).setBorder(true, null, null, null, null, null, black, thin);
-      
+      // 7. MERGED FIELD STYLING: Left-align text with top thin border line only
+      nameMergeRange.setBorder(true, null, null, null, null, null, black, thin);
+      nameMergeRange.setHorizontalAlignment('left').setVerticalAlignment('middle');
+
       // 9. COLUMN I (Outer edge): Draw top thin border and thick outer right wall (the line left of column J)
       var edgeCell = display.getRange(r, 9);
-      // FIX: Hardcoded bottom parameter to false here so individual mid-list player rows never force a thick underline!
       edgeCell.setBorder(true, null, true, null, null, null, black, thin);
       edgeCell.setBorder(null, null, null, true, null, null, black, thick);
 
