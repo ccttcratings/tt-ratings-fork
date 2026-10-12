@@ -235,7 +235,8 @@ function getNextSaturday(date) {
 }
 
 function createDisplayTab() {
-  var ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
+  var responseDb = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
   var templateSheet = ss.getSheetByName('Template');
   
   if (!templateSheet) {
@@ -243,17 +244,15 @@ function createDisplayTab() {
     return;
   }
   
-  var displayName = formatDateForSheet(getNextSaturday(new Date()));
+  var targetSaturdayDate = getNextSaturday(new Date());
+  var displayName = formatDateForSheet(targetSaturdayDate);
   var oldSheet = ss.getSheetByName(displayName);
   
-  // FIX: If the weekly display tab already exists, stop right here! 
-  // Do NOT copy the template again, and do NOT delete the active sheet.
-  if (oldSheet) {
+  if (oldSheet && !oldSheet.isSheetHidden()) {
     Logger.log('Display tab "' + displayName + '" already exists - skipping template duplication.');
     return;
   }
-  
-  // This section only executes once on a fresh week setup pass
+
   var displaySheet = templateSheet.copyTo(ss);
   displaySheet.setName(displayName);
   displaySheet.showSheet();
@@ -261,9 +260,28 @@ function createDisplayTab() {
   ss.setActiveSheet(displaySheet);
   ss.moveActiveSheet(5);
   
-  ["E5:E10", "E26:E31", "E47:E52"].forEach(function(r) {
-    displaySheet.getRange(r).setNumberFormat("@");
-  });
+  if (oldSheet) {
+    ss.deleteSheet(oldSheet);
+    Logger.log('Ghost display tab cache successfully cleared for: ' + displayName);
+  }
+  
+  var previousWeekDate = new Date(targetSaturdayDate.getTime());
+  previousWeekDate.setDate(targetSaturdayDate.getDate() - 7);
+  
+  var oldDateString = formatDateForSheet(previousWeekDate);
+  var previousDisplaySheetName = oldDateString;
+  var previousRawSheetName = 'Raw ' + oldDateString;
+  var oldDisplaySheet = ss.getSheetByName(previousDisplaySheetName);
+  if (oldDisplaySheet) {
+    ss.deleteSheet(oldDisplaySheet);
+    Logger.log('🧹 Successfully deleted last week\'s display tab "' + previousDisplaySheetName + '".');
+  }
+  
+  var oldRawSheet = responseDb.getSheetByName(previousRawSheetName);
+  if (oldRawSheet) {
+    responseDb.deleteSheet(oldRawSheet);
+    Logger.log('🧹 Successfully deleted last week\'s raw tab "' + previousRawSheetName + '".');
+  }
 }
 
 function populateDisplayTab() {
@@ -272,7 +290,7 @@ function populateDisplayTab() {
     var displayName = formatDateForSheet(getNextSaturday(new Date()));
     var rawSheet = responseDb.getSheetByName('Raw ' + displayName);
     
-    var ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(RESPONSE_SPREADSHEET_ID);
     var display = ss.getSheetByName(displayName);
 
     if (!rawSheet) {
@@ -291,7 +309,7 @@ function populateDisplayTab() {
       return 0;
     }
 
-    var headers = rawDataMatrix;
+    var headers = rawDataMatrix[0];
     var nameIdx = -1;
     var playingIdx = -1;
     var emailIdx = -1;
