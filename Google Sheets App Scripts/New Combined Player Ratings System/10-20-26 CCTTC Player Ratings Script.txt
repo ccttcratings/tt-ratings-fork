@@ -1116,12 +1116,7 @@ function runEngineCore(sheet, sheetName) {
     Logger.log('Players needing an initial rating in the Ratings sheet: ' + unrated.join(', '));
   }
 
-  // The session date (usually the date sheet's name, e.g. '08-15-2026'). Used
-  // for column D on the Ratings tab AND the Rating History rows, so both match
-  // the real session date even when the run happens on a later calendar day.
-  var today = /^\d{2}-\d{2}-\d{4}$/.test(sheetName)
-    ? sheetName
-    : Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy');
+  var today = sheetName.replace(/[^\d-]/g, '').trim();
 
   // Sort and write the Ratings tab (shared with rerankRatings()).
   var result = writeRatingsTab(ss, ratingsSheet, currentRatings, changes, today);
@@ -1936,16 +1931,31 @@ function parseDatedHeader(v) {
   if (typeof v === 'string') {
     v = v.trim();
     if (v === '') return null;
-    var parts = v.split(/[-/]/);
+    
+    // SURGICAL FIX: Clean out commas and split cleanly across spaces, dashes, or slashes!
+    var cleanStr = v.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    var parts = cleanStr.split(/[-/\s]/);
+    
     if (parts.length === 3) {
+      // Handle standard numeric dash/slash structures: MM-dd-yyyy
       var a = parseInt(parts[0], 10);
       var b = parseInt(parts[1], 10);
       var y = parseInt(parts[2], 10);
       if (y < 100) y += 2000;
-      // 'MM-dd-yyyy' first; fall back to 'dd-MM-yyyy' when the first number
-      // cannot be a month (e.g. a day > 12).
+      
       if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return new Date(y, a - 1, b);
       if (b >= 1 && b <= 12 && a >= 1 && a <= 31) return new Date(y, b - 1, a);
+      
+      // Handle written text monthly strings natively: "Oct 17 2026" or "Oct 17 26"
+      var monthsMap = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+      var monthKey = String(parts[0]).toLowerCase().substring(0, 3);
+      
+      if (monthsMap[monthKey] !== undefined) {
+        var dayNum = parseInt(parts[1], 10);
+        var yearNum = parseInt(parts[2], 10);
+        if (yearNum < 100) yearNum += 2000;
+        return new Date(yearNum, monthsMap[monthKey], dayNum);
+      }
     }
     var d = new Date(v);
     if (!isNaN(d.getTime())) return d;
@@ -1958,8 +1968,6 @@ function isSameDay(a, b) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 }
-
-
 
 // ==================== FILE: USATT Ratings Alignment.gs ====================
 
@@ -2998,11 +3006,13 @@ function publishPublicScoreSheet(sheetName) {
     var publicRatingsSheet = publicSS.getSheetByName('🔵 Ratings');
 
     if (publicHistorySheet && publicRatingsSheet) {
-      // Generate a clean tournament date string matching your historical tracking schema
-      var currentDate = new Date();
-      var displayNameDate = formatDateForSheet(getNextSaturday(currentDate));
       
-      // Map out existing public history log entries for today's date to prevent duplicate row rows on re-runs
+      // Isolate the clean raw dash-date string from the sheet name (e.g., "10-17-2026")
+      var cleanDateRaw = sheetName.replace(/[^\d-]/g, '').trim();
+      var parts = cleanDateRaw.split('-');
+      var targetTournamentDate = new Date(parseInt(parts[2], 10), parseInt(parts[0], 10) - 1, parseInt(parts[1], 10));
+      
+      // Map out existing public history log entries for this specific date to prevent duplicates
       var historyLastRow = publicHistorySheet.getLastRow();
       var existingEntries = {};
       
@@ -3011,9 +3021,11 @@ function publishPublicScoreSheet(sheetName) {
         for (var r = 1; r < existingData.length; r++) {
           var pName = String(existingData[r][0]).trim();
           var pDateRaw = existingData[r][1];
+          
           if (pName && pDateRaw) {
-            var pDateStr = (pDateRaw instanceof Date) ? formatDateForSheet(pDateRaw) : String(pDateRaw).trim();
-            if (pDateStr === displayNameDate) {
+            // Convert existing history date cells to clean strings for comparison
+            var pDateStr = (pDateRaw instanceof Date) ? Utilities.formatDate(pDateRaw, masterSS.getSpreadsheetTimeZone(), 'MM-dd-yyyy') : String(pDateRaw).trim();
+            if (pDateStr === cleanDateRaw) {
               existingEntries[pName.toLowerCase()] = r + 1;
             }
           }
@@ -3021,11 +3033,10 @@ function publishPublicScoreSheet(sheetName) {
       }
 
       // =========================================================================
-      // 2. THE ROSTER SCANPASS: Loop through EVERY player on the polished public sheet
+      // 2. THE ROSTER SCAN PASS: Loop through EVERY player on the polished public sheet
       // =========================================================================
       var ratingsLastRow = publicRatingsSheet.getLastRow();
       if (ratingsLastRow >= 2) {
-        // Read Column B (Names), Column C (Ratings), and Column D (Dates) in one quick pass
         var rosterValues = publicRatingsSheet.getRange(2, 2, ratingsLastRow - 1, 3).getValues();
         
         for (var p = 0; p < rosterValues.length; p++) {
@@ -3035,28 +3046,42 @@ function publishPublicScoreSheet(sheetName) {
           
           if (name === "") continue;
           
-          // Verify if this row represents an active player who logged matches in today's tracking block
-          var playerDateStr = (dateRaw instanceof Date) ? formatDateForSheet(dateRaw) : String(dateRaw).trim();
-          if (playerDateStr !== displayNameDate) {
-            continue; // Skip non-participating players who didn't play today
+          // Unify the player row date format to a clean dash-separated string
+          var playerDateStr = (dateRaw instanceof Date) ? Utilities.formatDate(dateRaw, masterSS.getSpreadsheetTimeZone(), 'MM-dd-yyyy') : String(dateRaw).trim();
+          
+          // Compare "10-17-2026" directly with the clean tournament date "10-17-2026"
+          if (playerDateStr !== cleanDateRaw) {
+            continue; // Skip players who didn't play on this specific tournament day
           }
           
-          // Ensure rating is processed as a pure number, fallback to empty string if hidden/blank
           var activeRating = (typeof rating === 'number' && !isNaN(rating)) ? round2(rating) : "";
           var lookupKey = name.toLowerCase();
+
+          // =========================================================================
+          // SURGICAL FIX: TIMEZONE-INSULATED DATE STRING WRITER
+          // =========================================================================
+          // Create an explicit, unshiftable text string for the public log sheet
+          var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          var dateStringLiteral = months[targetTournamentDate.getMonth()] + ' ' + targetTournamentDate.getDate() + ', ' + targetTournamentDate.getFullYear();
 
           if (existingEntries[lookupKey]) {
             // Overwrite the existing record with the fresh rating values on manual re-syncs
             var targetRow = existingEntries[lookupKey];
-            publicHistorySheet.getRange(targetRow, 2).setValue(displayNameDate);
+            var dateCell = publicHistorySheet.getRange(targetRow, 2);
+            dateCell.clearFormat(); // Clear any stale background settings
+            dateCell.setValue(dateStringLiteral);
+            dateCell.setNumberFormat("MMM d, yy");
+            
             publicHistorySheet.getRange(targetRow, 3).setValue(activeRating);
           } else {
-            // 3. COMPLETE 3-COLUMN APPEND WRITE: Passes Name, Text Date, and Rating cleanly!
-            publicHistorySheet.appendRow([name, displayNameDate, activeRating]);
+            // 3. COMPLETE 3-COLUMN APPEND WRITE: Pass the text string literal to freeze the calendar day!
+            publicHistorySheet.appendRow([name, dateStringLiteral, activeRating]);
             
-            // Format Column B string properties so it locks into text presentation alignment natively
+            // Format Column B string properties so it locks into your exact display preference natively
             var newLastRow = publicHistorySheet.getLastRow();
-            publicHistorySheet.getRange(newLastRow, 2).setNumberFormat("@");
+            var newDateCell = publicHistorySheet.getRange(newLastRow, 2);
+            newDateCell.clearFormat();
+            newDateCell.setNumberFormat("MMM d, yy");
           }
         }
       }
