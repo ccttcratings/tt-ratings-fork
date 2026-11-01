@@ -1422,7 +1422,7 @@ function buildNewPlayerRatingDialogHtml(name) {
     '    return;' +
     '  }' +
     ' document.getElementById("okBtn").disabled = true;' +
-    ' google.script.run.addNewPlayerRating(' + JSON.stringify(name) + ', parseFloat(r));' +
+    ' google.script.run.addNewPlayerRating(\'' + JSON.stringify(name) + '\', parseFloat(r));' +
     ' google.script.host.close();' +
     '</script>' +
     '</body></html>';
@@ -1495,7 +1495,7 @@ function buildNewPlayerEmailDialogHtml(name, row) {
     '  var e = document.getElementById("email").value.trim();' +
     '  document.getElementById("okBtn").disabled = true;' +
     '  ' +
-    '  google.script.run.addNewPlayerEmail(' + JSON.stringify(name) + ', ' + row + ', e);' +
+    '  google.script.run.addNewPlayerEmail(\'' + JSON.stringify(name) + '\', ' + row + ', e);' +
     '  google.script.host.close();' +
     '}' +
     'function cancel() { google.script.host.close(); }' +
