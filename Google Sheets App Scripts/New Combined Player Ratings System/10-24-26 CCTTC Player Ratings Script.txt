@@ -1043,7 +1043,7 @@ function runRatingsEngine() {
     var newPlayers = findNewPlayers(sheet);
     if (newPlayers.length > 0) {
       CacheService.getScriptCache().put('engineSheet', sheetName, 600);
-      showNewPlayerDialog(newPlayers, 0, newPlayers.length);
+      showNewPlayerDialog(newPlayers[0], 0, newPlayers.length);
       return;
     }
 
@@ -1416,20 +1416,14 @@ function buildNewPlayerRatingDialogHtml(name) {
     '<div id="status" style="color:#cc0000"></div>' +
     '<script>' +
     'function submitRating() {' +
-    '  var r = document.getElementById("rating").value;' + // FIX: Removed .trim() to prevent element crashing
+    '  var r = document.getElementById("rating").value;' +
     '  if (r === "" || isNaN(parseFloat(r))) {' +
     '    document.getElementById("status").textContent = "Enter a numeric rating.";' +
     '    return;' +
     '  }' +
-    '  document.getElementById("okBtn").disabled = true;' +
-    '  ' +
-    '  // FIX: Passing name and rating cleanly to the modified server function' +
-    '  google.script.run.addNewPlayerRating(String(' + JSON.stringify(name) + '), parseFloat(r));' +
-    '  ' +
-    '  // FIX: Closes the box immediately so the email prompt can take over' +
-    '  google.script.host.close();' +
-    '}' +
-    'function cancel() { google.script.host.close(); }' +
+    ' document.getElementById("okBtn").disabled = true;' +
+    ' google.script.run.addNewPlayerRating(' + JSON.stringify(name) + ', parseFloat(r));' +
+    ' google.script.host.close();' +
     '</script>' +
     '</body></html>';
 }
@@ -1472,8 +1466,10 @@ function insertNewPlayerRow(ratingsSheet, name, rating) {
   ratingsSheet.getRange('A' + newRow).setValue(lastPlayerRow); 
   ratingsSheet.getRange('B' + newRow).setValue(name);
   ratingsSheet.getRange('C' + newRow).setValue(roundQuarter(rating));
+  // SURGICAL FIX: Query the active spreadsheet directly to retrieve the timezone string safely
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   ratingsSheet.getRange('D' + newRow).setValue(
-    Utilities.formatDate(new Date(), ratingsSheet.getParent().getSpreadsheetTimeZone(), 'MM-dd-yyyy'));
+    Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MM-dd-yyyy'));
   return newRow;
 }
 
@@ -1519,9 +1515,10 @@ function addNewPlayerEmail(name, row, email) {
   var remaining = findNewPlayers(sheet);
   
   if (remaining.length > 0) {
-    // FIX: Extract the text string name property explicitly from the object array
-    newPlayerRatingDialog(remaining[0].name); 
+    // SURGICAL FIX: Route back to the confirmation dialog for the next standalone player string
+    showNewPlayerDialog(remaining[0], 0, remaining.length); 
   } else {
+
     runEngineCore(sheet, sheet.getName());
   }
 }
