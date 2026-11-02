@@ -1570,8 +1570,8 @@ function snapshotEngineRunState(ss, sheet, sheetName) {
   var lastRow = ratingsSheet ? ratingsSheet.getLastRow() : 0;
   if (lastRow >= 2) {
     snap.ratingsAD = serializeGrid(ratingsSheet.getRange('A2:D' + lastRow).getValues());
-    snap.ratingsCZ = ratingsSheet.getRange('CZ2:CZ' + lastRow).getValues();
-    snap.ratingsDC = ratingsSheet.getRange('DC2:DC' + lastRow).getValues();
+    snap.ratingsK = ratingsSheet.getRange('K2:K' + lastRow).getValues();
+    snap.ratingsN = ratingsSheet.getRange('N2:N' + lastRow).getValues();
     snap.ratingsRows = lastRow - 1;
   } else {
     snap.ratingsAD = [];
@@ -1680,8 +1680,8 @@ function revertRatingsEngineRun() {
   }
   if (oldRows > 0) {
     ratingsSheet.getRange('A2:D' + (oldRows + 1)).setValues(deserializeGrid(snap.ratingsAD));
-    ratingsSheet.getRange('CZ2:CZ' + (oldRows + 1)).setValues(snap.ratingsCZ);
-    ratingsSheet.getRange('DC2:DC' + (oldRows + 1)).setValues(snap.ratingsDC);
+    ratingsSheet.getRange('K2:K' + (oldRows + 1)).setValues(snap.ratingsK);
+    ratingsSheet.getRange('N2:N' + (oldRows + 1)).setValues(snap.ratingsN);
   }
 
   // 2. Date sheet: restore D/E/F, point winners, the L column, and the K/M
