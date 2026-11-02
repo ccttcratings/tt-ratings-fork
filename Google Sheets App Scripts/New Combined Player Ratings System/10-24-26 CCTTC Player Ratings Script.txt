@@ -1406,24 +1406,31 @@ function newPlayerRatingDialog(name) {
 function buildNewPlayerRatingDialogHtml(name) {
   return '<!DOCTYPE html><html><head><base target="_top"></head><body>' +
     '<h3>Initial club rating</h3>' +
-    '<p>Enter the starting club rating for <b>' + escapeHtml(name) +
-    '</b> (e.g., 1500):</p>' +
+    '<p>Enter the starting club rating for <b>' + escapeHtml(name) + '</b> (e.g., 1500):</p>' +
     '<p><input id="rating" type="number" step="0.25" min="0" placeholder="e.g. 1500" style="width:150px"></p>' +
     '<p>' +
-    '<button id="okBtn" onclick="submitRating()">OK</button> ' +
-    '<button onclick="cancel()">Cancel</button>' +
+    '  <button id="okBtn">OK</button> ' +
+    '  <button id="cancelBtn">Cancel</button>' +
     '</p>' +
     '<div id="status" style="color:#cc0000"></div>' +
     '<script>' +
-    'function submitRating() {' +
+    // Store the raw, uncorrupted name string inside a local global variable
+    'var _playerName = ' + JSON.stringify(name) + ';' +
+    
+    'document.getElementById("okBtn").addEventListener("click", function() {' +
     '  var r = document.getElementById("rating").value;' +
     '  if (r === "" || isNaN(parseFloat(r))) {' +
     '    document.getElementById("status").textContent = "Enter a numeric rating.";' +
     '    return;' +
     '  }' +
-    ' document.getElementById("okBtn").disabled = true;' +
-    ' google.script.run.addNewPlayerRating(\'' + JSON.stringify(name) + '\', parseFloat(r));' +
-    ' google.script.host.close();' +
+    '  document.getElementById("okBtn").disabled = true;' +
+    '  google.script.run.addNewPlayerRating(_playerName, parseFloat(r));' +
+    '  google.script.host.close();' +
+    '});' +
+    
+    'document.getElementById("cancelBtn").addEventListener("click", function() {' +
+    '  google.script.host.close();' +
+    '});' +
     '</script>' +
     '</body></html>';
 }
@@ -1487,24 +1494,30 @@ function buildNewPlayerEmailDialogHtml(name, row) {
     '<p>Enter the primary email for <b>' + escapeHtml(name) + '</b> (optional):</p>' +
     '<p><input id="email" type="text" placeholder="name@example.com" style="width:230px"></p>' +
     '<p>' +
-    '<button id="okBtn" onclick="submitEmail()">OK</button> ' +
-    '<button onclick="cancel()">Cancel</button>' +
+    '  <button id="okBtn">OK</button> ' +
+    '  <button id="cancelBtn">Cancel</button>' +
     '</p>' +
     '<script>' +
-    'function submitEmail() {' +
+    // Store the raw, uncorrupted name string inside a local global variable
+    'var _playerName = ' + JSON.stringify(name) + ';' +
+    'var _row = ' + row + ';' +
+    
+    'document.getElementById("okBtn").addEventListener("click", function() {' +
     '  var e = document.getElementById("email").value.trim();' +
     '  document.getElementById("okBtn").disabled = true;' +
-    '  ' +
-    '  google.script.run.addNewPlayerEmail(\'' + JSON.stringify(name) + '\', ' + row + ', e);' +
+    '  google.script.run.addNewPlayerEmail(_playerName, _row, e);' +
     '  google.script.host.close();' +
-    '}' +
-    'function cancel() { google.script.host.close(); }' +
+    '});' +
+    
+    'document.getElementById("cancelBtn").addEventListener("click", function() {' +
+    '  google.script.host.close();' +
+    '});' +
     '</script>' +
     '</body></html>';
 }
 
 function addNewPlayerEmail(name, row, email) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1qKcKXmaVmOFZsXjNSIdBMhtCJOJmF4YaMUvbmAczvIc');
   var ratingsSheet = ss.getSheetByName(RATINGS_SHEET_NAME);
   
   if (email && String(email).trim() !== '') {
@@ -1515,11 +1528,12 @@ function addNewPlayerEmail(name, row, email) {
   var remaining = findNewPlayers(sheet);
   
   if (remaining.length > 0) {
-    // SURGICAL FIX: Route back to the confirmation dialog for the next standalone player string
     showNewPlayerDialog(remaining[0], 0, remaining.length); 
   } else {
 
     runEngineCore(sheet, sheet.getName());
+    publishPublicRatingsMirror();
+    publishPublicScoreSheet(sheet.getName());
   }
 }
 
